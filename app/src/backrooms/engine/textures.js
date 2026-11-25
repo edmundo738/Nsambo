@@ -43,17 +43,18 @@ export async function loadPBRSet(gl, base, { normalFlip = 1, flipY = true } = {}
 }
 
 export async function loadAllTextures(gl, basePath = '/textures/backrooms') {
-  const [wall, carpet, ceiling, eye, mountains, key] = await Promise.all([
+  const [wall, carpet, ceiling, eye, mountains, key, doorWood] = await Promise.all([
     loadPBRSet(gl, `${basePath}/wallpaper-yellow`),
     loadPBRSet(gl, `${basePath}/carpet-tile`),
     loadPBRSet(gl, `${basePath}/ceiling-tile`),
     loadOne(gl, `${basePath}/painting-eye.jpg`, { srgb: true }),
     loadOne(gl, `${basePath}/painting-mountains.jpg`, { srgb: true }),
     loadPBRSet(gl, `${basePath}/key-gold`, { normalFlip: 1, flipY: false }),
+    loadPBRSet(gl, `${basePath}/door-wood`, { normalFlip: 1 }),
   ])
   // sinal SAÍDA — tipografia gerada em canvas (não é textura de material pintada à mão)
   const sign = makeSignTexture(gl)
-  return { wall, carpet, ceiling, eye, mountains, key, sign }
+  return { wall, carpet, ceiling, eye, mountains, key, doorWood, sign }
 }
 
 function makeSignTexture(gl) {

@@ -20,6 +20,16 @@ function addQuad(b, v0, v1, v2, v3, normal, tangent, u0v0, u1v1, u2v2, u3v3) {
   }
   b.indices.push(base, base + 1, base + 2, base, base + 2, base + 3)
 }
+// faces com UV 0..1 (inteira) — para painéis de porta/textura pintada
+function boxFacesUV01(b, lo, hi) {
+  const [x0, y0, z0] = lo, [x1, y1, z1] = hi
+  addQuad(b, [x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [1, 0, 0], [0, 0, -1, 0], [0, 0], [1, 0], [1, 1], [0, 1])
+  addQuad(b, [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1, 0, 0], [0, 0, 1, 0], [0, 0], [1, 0], [1, 1], [0, 1])
+  addQuad(b, [x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [0, 1, 0], [1, 0, 0, 0], [0, 0], [1, 0], [1, 1], [0, 1])
+  addQuad(b, [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], [1, 0, 0, 0], [0, 0], [1, 0], [1, 1], [0, 1])
+  addQuad(b, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1], [1, 0, 0, 0], [0, 0], [1, 0], [1, 1], [0, 1])
+  addQuad(b, [x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0, 0, -1], [-1, 0, 0, 0], [0, 0], [1, 0], [1, 1], [0, 1])
+}
 function boxFaces(b, lo, hi) {
   // 6 faces com enrolamento correto visto de fora; uvs em metros
   const [x0, y0, z0] = lo, [x1, y1, z1] = hi
@@ -63,7 +73,7 @@ function addCylinder(b, cx, cz, y0, y1, r, seg = 8, uvScale = 1.5) {
 export function buildLevelMeshes(lvl) {
   const { cells, size, sealedEdges } = lvl
   const B = {
-    wall: makeBucket(), carpet: makeBucket(), ceiling: makeBucket(), panel: makeBucket(),
+    wall: makeBucket(), carpet: makeBucket(), ceiling: makeBucket(), panel: makeBucket(), panelBad: makeBucket(),
     frame: makeBucket(), wood: makeBucket(), baseboard: makeBucket(),
     sign: makeBucket(), paintingEye: makeBucket(), paintingMtn: makeBucket(),
   }
@@ -88,9 +98,12 @@ export function buildLevelMeshes(lvl) {
     addQuad(B.ceiling, [x0, WALL_H, z0], [x1, WALL_H, z0], [x1, WALL_H, z1], [x0, WALL_H, z1], [0, -1, 0], [1, 0, 0, 0],
       [x0 / 2.3, z0 / 2.3], [x1 / 2.3, z0 / 2.3], [x1 / 2.3, z1 / 2.3], [x0 / 2.3, z1 / 2.3])
     // painel fluorescente alinhado à grelha do tecto (a cada 3 células)
+    // ~20% estão a morrer (zumbido, apagão intermitente) — hash determinístico por célula
     if (x % 3 === 1 && z % 3 === 2) {
       const px = x * CELL + CELL / 2, pz = z * CELL + CELL / 2, pw = 0.75, pd = 0.32
-      addQuad(B.panel, [px - pw, WALL_H - 0.015, pz - pd], [px + pw, WALL_H - 0.015, pz - pd], [px + pw, WALL_H - 0.015, pz + pd], [px - pw, WALL_H - 0.015, pz + pd],
+      const h = ((x * 73856093) ^ (z * 19349663)) >>> 0
+      const bucket = (h % 5 === 0) ? B.panelBad : B.panel
+      addQuad(bucket, [px - pw, WALL_H - 0.015, pz - pd], [px + pw, WALL_H - 0.015, pz - pd], [px + pw, WALL_H - 0.015, pz + pd], [px - pw, WALL_H - 0.015, pz + pd],
         [0, -1, 0], [1, 0, 0, 0], [0, 0], [1, 0], [1, 1], [0, 1])
     }
   }
@@ -142,6 +155,7 @@ export function buildLevelMeshes(lvl) {
     const z = Math.floor(i / size), x = i % size
     const c = cellToWorld(x, z)
     boxFaces(B.wall, [c.x - 0.26, 0, c.z - 0.26], [c.x + 0.26, WALL_H, c.z + 0.26])
+    boxFaces(B.baseboard, [c.x - 0.285, 0, c.z - 0.285], [c.x + 0.285, 0.17, c.z + 0.285])   // rodapé — ancora o pilar ao chão
   }
 
   // ── pontos de spawn/saída/chave ────────────────────────────────
@@ -166,6 +180,8 @@ export function buildLevelMeshes(lvl) {
   })()
   // moldura (2 ombreiras + verga) e porta dupla — bucket separado p/ animação da porta
   const Door = makeBucket()
+  const doorHw = makeBucket()   // ferragens (maçanetas) — latão polido, separado da folha
+  const exitGlow = makeBucket() // réstia verde a vazar pela junta central
   const doorSign = makeBucket()
   const depth = 0.10
   const doorAxisX = doorInfo.axisX   // parede alinhada a x→ porta desliza em x
@@ -174,18 +190,21 @@ export function buildLevelMeshes(lvl) {
     boxFaces(B.frame, [dat - 1.12, 0, plane - depth / 2], [dat - 0.97, 2.32, plane + depth / 2])
     boxFaces(B.frame, [dat + 0.97, 0, plane - depth / 2], [dat + 1.12, 2.32, plane + depth / 2])
     boxFaces(B.frame, [dat - 1.12, 2.32, plane - depth / 2], [dat + 1.12, 2.46, plane + depth / 2])
-    boxFaces(Door, [dat - 0.97, 0.02, plane - depth / 2], [dat - 0.02, 2.30, plane + depth / 2])
-    boxFaces(Door, [dat + 0.02, 0.02, plane - depth / 2], [dat + 0.97, 2.30, plane + depth / 2])
-    boxFaces(Door, [dat - 0.13, 1.05, plane - 0.09], [dat - 0.06, 1.18, plane + 0.09])
-    boxFaces(Door, [dat + 0.06, 1.05, plane - 0.09], [dat + 0.13, 1.18, plane + 0.09])
+    boxFacesUV01(Door, [dat - 0.97, 0.02, plane - depth / 2], [dat - 0.02, 2.30, plane + depth / 2])
+    boxFacesUV01(Door, [dat + 0.02, 0.02, plane - depth / 2], [dat + 0.97, 2.30, plane + depth / 2])
+    boxFaces(doorHw, [dat - 0.13, 1.05, plane - 0.09], [dat - 0.06, 1.18, plane + 0.09])
+    boxFaces(doorHw, [dat + 0.06, 1.05, plane - 0.09], [dat + 0.13, 1.18, plane + 0.09])
+    // réstia na junta central (0.04 m) — luz verde do outro lado
+    boxFaces(exitGlow, [dat - 0.024, 0.02, plane - 0.012], [dat + 0.024, 2.30, plane + 0.012])
   } else {
     boxFaces(B.frame, [plane - depth / 2, 0, dat - 1.12], [plane + depth / 2, 2.32, dat - 0.97])
     boxFaces(B.frame, [plane - depth / 2, 0, dat + 0.97], [plane + depth / 2, 2.32, dat + 1.12])
     boxFaces(B.frame, [plane - depth / 2, 2.32, dat - 1.12], [plane + depth / 2, 2.46, dat + 1.12])
-    boxFaces(Door, [plane - depth / 2, 0.02, dat - 0.97], [plane + depth / 2, 2.30, dat - 0.02])
-    boxFaces(Door, [plane - depth / 2, 0.02, dat + 0.02], [plane + depth / 2, 2.30, dat + 0.97])
-    boxFaces(Door, [plane - 0.09, 1.05, dat - 0.13], [plane + 0.09, 1.18, dat - 0.06])
-    boxFaces(Door, [plane - 0.09, 1.05, dat + 0.06], [plane + 0.09, 1.18, dat + 0.13])
+    boxFacesUV01(Door, [plane - depth / 2, 0.02, dat - 0.97], [plane + depth / 2, 2.30, dat - 0.02])
+    boxFacesUV01(Door, [plane - depth / 2, 0.02, dat + 0.02], [plane + depth / 2, 2.30, dat + 0.97])
+    boxFaces(doorHw, [plane - 0.09, 1.05, dat - 0.13], [plane + 0.09, 1.18, dat - 0.06])
+    boxFaces(doorHw, [plane - 0.09, 1.05, dat + 0.06], [plane + 0.09, 1.18, dat + 0.13])
+    boxFaces(exitGlow, [plane - 0.012, 0.02, dat - 0.024], [plane + 0.012, 2.30, dat + 0.024])
   }
   // sinal SAÍDA — encostado ao plano da porta, virado para a abordagem
   {
@@ -265,12 +284,15 @@ export function buildLevelMeshes(lvl) {
   push('carpet', B.carpet)
   push('ceiling', B.ceiling)
   push('panel', B.panel, { emissive: true })
+  push('panelBad', B.panelBad, { emissive: true })
   push('frame', B.frame, { untextured: { baseColor: [0.72, 0.55, 0.22], metallic: 1.0, roughness: 0.32 } })
   push('wood', Ped, { untextured: { baseColor: [0.40, 0.26, 0.145], metallic: 0.0, roughness: 0.55 } })
   push('paintingEye', B.paintingEye)
   push('paintingMtn', B.paintingMtn)
   push('sign', doorSign, { emissive: true })
-  push('door', Door, { untextured: { baseColor: [0.30, 0.18, 0.09], metallic: 0.1, roughness: 0.55 } })
+  push('door', Door)
+  push('doorHw', doorHw, { untextured: { baseColor: [0.86, 0.68, 0.30], metallic: 0.9, roughness: 0.28 } })
+  push('exitGlow', exitGlow, { untextured: { baseColor: [0.02, 0.10, 0.05], metallic: 0.0, roughness: 0.9, emissive: [0.35, 1.0, 0.55], emissiveStrength: 1.6 } })
 
   return {
     meshes,

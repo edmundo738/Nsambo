@@ -65,6 +65,8 @@ body { font-family: "Courier New", ui-monospace, Menlo, monospace; color: var(--
 .meter .label { font-size: 9px; color: var(--amber-dim); margin-bottom: 3px; letter-spacing: .3em; }
 .meter .track { height: 5px; background: rgba(255, 216, 148, 0.12); border: 1px solid rgba(255, 216, 148, 0.18); }
 .meter .fill { height: 100%; background: var(--amber); transition: width .1s linear; box-shadow: 0 0 8px rgba(255, 216, 148, .45); }
+.meter .fill.low { background: #ff8a3c; box-shadow: 0 0 10px rgba(255, 120, 50, .75); animation: low-batt 0.8s steps(2, jump-none) infinite; }
+@keyframes low-batt { 50% { opacity: .55 } }
 #stamina-wrap { bottom: 88px; }
 #stamina-fill.exhausted { background: #ff9c6b; box-shadow: 0 0 8px rgba(255, 156, 107, .5); }
 #battery-wrap { bottom: 46px; }

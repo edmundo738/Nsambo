@@ -118,15 +118,33 @@ export class Renderer {
 
   setScene(built) {
     const gl = this.gl
-    this.meshes = built.meshes.map(m => this._upload(m))
+    this.meshes = built.meshes.map((m, i) => ({ ...this._upload(m), phase: (i * 2.399963) % 6.2832 }))
     this._uploadDynamic('door', built.doorMesh)
   }
 
   // GLB carregado pelo jogo → malha dinâmica + textura própria (flipY=false)
   async setModel(name, glb) {
     const gl = this.gl
+    glb.__name = name
     this['mesh_' + name] = this._upload(glb)
     this['tex_' + name] = await this._uploadGlbTexture(glb.textureBlob)
+  }
+
+  // viewmodel: posições atualizadas por frame (blend de poses no CPU)
+  async setDynamicModel(name, glb) {
+    const gl = this.gl
+    glb.__name = name
+    this['mesh_' + name] = this._upload(glb, { dynamic: true })
+    this['tex_' + name] = await this._uploadGlbTexture(glb.textureBlob)
+  }
+
+  updateDynamic(name, positions) {
+    const buf = this['dynpos_' + name]
+    if (!buf) return
+    const gl = this.gl
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf)
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, positions)
+    gl.bindBuffer(gl.ARRAY_BUFFER, null)
   }
 
   async _uploadGlbTexture(blob) {
@@ -145,19 +163,20 @@ export class Renderer {
     return tex
   }
 
-  _upload(m) {
+  _upload(m, { dynamic = false } = {}) {
     const gl = this.gl
     const vao = gl.createVertexArray()
     gl.bindVertexArray(vao)
-    const mk = (data, loc, size) => {
+    const mk = (data, loc, size, dyn = false) => {
       const b = gl.createBuffer()
       gl.bindBuffer(gl.ARRAY_BUFFER, b)
-      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW)
+      gl.bufferData(gl.ARRAY_BUFFER, data, dyn ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW)
       gl.enableVertexAttribArray(loc)
       gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0)
       return b
     }
-    mk(m.positions, 0, 3)
+    const posBuf = mk(m.positions, 0, 3, dynamic)
+    if (dynamic) this['dynpos_' + m.__name] = posBuf
     mk(m.normals, 1, 3)
     mk(m.tangents, 2, 4)
     mk(m.uvs, 3, 2)
@@ -179,7 +198,12 @@ export class Renderer {
       frame.doorMatrix ? { ...this.mesh_door, model: frame.doorMatrix } : { ...this.mesh_door, model: IDENTITY },
       ...(frame.keyVisible && this.mesh_key ? [{ ...this.mesh_key, model: frame.keyMatrix, hot: frame.keyHot }] : []),
     ]
-    const all = [...this.meshes.map(m => ({ ...m, model: IDENTITY })), ...dynMeshes]
+    const all = [...this.meshes.map(m => {
+      if (m.material !== 'panelBad') return { ...m, model: IDENTITY }
+      const t = frame.time, ph = m.phase
+      const v = Math.sin(t * 11 + ph) * Math.sin(t * 4.7 + ph * 1.7 + 1.3)
+      return { ...m, model: IDENTITY, flick: v > -0.35 ? 1.15 : 0.15 }
+    }), ...dynMeshes]
 
     // ── passe de sombra (só a lanterna projecta) ──────────────────
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowFbo)
@@ -306,6 +330,13 @@ export class Renderer {
         bindSet(T.ceiling)
         gl.uniform1f(u.uRoughness, 0.9)
         break
+      case 'panelBad':
+        gl.uniform1i(u.uUntextured, 1)
+        gl.uniform3f(u.uBaseColor, 0.96, 0.94, 0.88)
+        gl.uniform1f(u.uRoughness, 0.4)
+        gl.uniform3f(u.uEmissiveColor, 1.0, 0.97, 0.86)
+        gl.uniform1f(u.uEmissive, m.flick ?? 1.15)
+        break
       case 'panel':
         gl.uniform1i(u.uUntextured, 1)
         gl.uniform3f(u.uBaseColor, 0.96, 0.94, 0.88)
@@ -325,10 +356,8 @@ export class Renderer {
         gl.uniform1f(u.uRoughness, m.untextured.roughness)
         break
       case 'door':
-        gl.uniform1i(u.uUntextured, 1)
-        gl.uniform3fv(u.uBaseColor, m.untextured.baseColor)
-        gl.uniform1f(u.uMetallic, m.untextured.metallic ?? 0.1)
-        gl.uniform1f(u.uRoughness, m.untextured.roughness)
+        bindSet(T.doorWood)
+        gl.uniform1f(u.uMetallic, 0.05)
         break
       case 'keycard':
         gl.uniform1i(u.uUntextured, 1)
@@ -337,6 +366,20 @@ export class Renderer {
         gl.uniform1f(u.uRoughness, m.untextured.roughness)
         gl.uniform3fv(u.uEmissiveColor, m.untextured.emissive)
         gl.uniform1f(u.uEmissive, 1.35)
+        break
+      case 'doorHw':
+        gl.uniform1i(u.uUntextured, 1)
+        gl.uniform3fv(u.uBaseColor, m.untextured.baseColor)
+        gl.uniform1f(u.uMetallic, m.untextured.metallic)
+        gl.uniform1f(u.uRoughness, m.untextured.roughness)
+        break
+      case 'exitGlow':
+        gl.uniform1i(u.uUntextured, 1)
+        gl.uniform3fv(u.uBaseColor, m.untextured.baseColor)
+        gl.uniform1f(u.uMetallic, 0.0)
+        gl.uniform1f(u.uRoughness, 0.9)
+        gl.uniform3f(u.uEmissiveColor, m.untextured.emissive[0], m.untextured.emissive[1], m.untextured.emissive[2])
+        gl.uniform1f(u.uEmissive, m.untextured.emissiveStrength ?? 1.6)
         break
       case 'modelKey':
         bindSet(this.textures.key)

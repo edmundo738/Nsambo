@@ -7,9 +7,10 @@ import { GameAudio } from './engine/audio.js'
 import { Player } from './game/player.js'
 import { Hud } from './game/hud.js'
 import { createPuzzleState, pickKey, tryExitDoor } from './game/puzzle.js'
-import { VM, armsLocal, flashLocal, FLASH_TIP, viewmodelProj } from './game/viewmodel.js'
+import { VM, armsLocal, FLASH_TIP, viewmodelProj } from './game/viewmodel.js'
 import { toggleFlashlight, lightIsOn } from './game/flashlight.js'
 import { pickVioletPos } from './game/violet.js'
+import { poseWeights, blendPoses, pulse, rightHandIndices, rightHandCentroid } from './game/arms-poses.mjs'
 import { mat4 } from './engine/math.js'
 import { LEVEL1 } from './levels/level1.js'
 import { loadGLB } from './engine/gltf.js'
@@ -79,6 +80,12 @@ class Game {
     this.steps = 0
     this.ost = null   // trilha do título/ambiente — <audio> (m4a)
     this._stepAcc = 0
+    this._armSpeed = 0
+    this._pushT = null
+    this._prevYaw = null
+    this._prevPitch = null
+    this._swayX = 0
+    this._swayY = 0
     this._revealAcc = 0
     this._mapAcc = 0
     this._prevKeys = new Set()
@@ -114,12 +121,24 @@ class Game {
   async _loadModels() {
     const base = import.meta.env.BASE_URL + 'models/'
     try {
-      const [arms, key, flash] = await Promise.all([
-        loadGLB(base + 'arms_rig.glb', { anim: QA_ARMANIM ?? 'knife_idle', animTime: QA_ARMTIME ?? 1.0 }),
+      const [arms, relaxA, relaxB, guard, grab, push, key, flash] = await Promise.all([
+        loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 0 }),
+        loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 0 }),
+        loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 2.0 }),
+        loadGLB(base + 'arms_rig.glb', { anim: 'knife_idle', animTime: 1.0 }),
+        loadGLB(base + 'arms_rig.glb', { anim: 'grab.R', animTime: 0.36 }),
+        loadGLB(base + 'arms_rig.glb', { anim: 'push.R', animTime: 0.32 }),
         loadGLB(base + 'psx_house_key.glb'),
         loadGLB(base + 'psx_flashlight.glb'),
       ])
-      await this.renderer.setModel('arms', arms)
+      this.armPoses = {
+        relaxA: relaxA.positions, relaxB: relaxB.positions, guard: guard.positions,
+        grab: grab.positions, push: push.positions,
+      }
+      this._rHandIdx = rightHandIndices(relaxA.positions)
+      this._armBlend = new Float32Array(arms.positions.length)
+      this._armBlend.set(relaxA.positions)
+      await this.renderer.setDynamicModel('arms', arms)
       await this.renderer.setModel('key', key)
       await this.renderer.setModel('flash', flash)
       this.modelsReady = true
@@ -233,6 +252,16 @@ class Game {
     const cam = player.update(dt, this.input)
     // passos
     this._stepAcc += cam.stepped
+    const speedTarget = cam.sprinting ? 3.0 : cam.moving ? 1.5 : 0
+    this._armSpeed += (speedTarget - this._armSpeed) * (1 - Math.exp(-6 * dt))
+    if (this._prevYaw !== null) {
+      const dy = this.player.yaw - this._prevYaw, dp = this.player.pitch - this._prevPitch
+      this._swayX += ((-dy * 1.35) - this._swayX) * (1 - Math.exp(-8 * dt))
+      this._swayY += ((dp * 1.1) - this._swayY) * (1 - Math.exp(-8 * dt))
+      this._swayX = Math.max(-0.06, Math.min(0.06, this._swayX))
+      this._swayY = Math.max(-0.05, Math.min(0.05, this._swayY))
+    }
+    this._prevYaw = this.player.yaw; this._prevPitch = this.player.pitch
     if (this._stepAcc > (cam.sprinting ? 1.7 : 2.3)) {
       this._stepAcc = 0
       this.steps++
@@ -313,6 +342,7 @@ class Game {
     }
     this._prevKeys.clear(); for (const k of this.input.keys) this._prevKeys.add(k)   // sem alocar por frame
     // animação da porta (desliza para dentro da parede)
+    if (this.puzzle.doorOpen && this._pushT === null) this._pushT = time
     if (this.puzzle.doorOpen && this.doorProgress < 1) {
       this.doorProgress = Math.min(1, this.doorProgress + dt / 1.6)
     }
@@ -399,6 +429,18 @@ class Game {
       )
     })()
     // braços do jogador (viewmodel): presos à câmara, fora do mundo
+    // — blend de poses por estado (respiração → alerta → apanhar/empurrar)
+    const reach = this._reachT != null ? Math.sin(Math.PI * Math.min(1, (time - this._reachT) / 0.42)) : 0
+    if (this.armPoses && this.state === 'playing') {
+      const grabPulse = this._reachT != null ? pulse(time - this._reachT, 0.6, 0.18) : 0
+      const pushPulse = this._pushT != null ? pulse(time - this._pushT, 0.8, 0.28) : 0
+      const breath = 0.5 + 0.5 * Math.sin(time * 1.35)
+      const w = poseWeights({ speed: this._armSpeed, breath, grab: grabPulse, push: pushPulse })
+      blendPoses(this._armBlend, this.armPoses, w)
+      this.renderer.updateDynamic('arms', this._armBlend)
+      const handRig = rightHandCentroid(this._armBlend, this._rHandIdx)
+      this._handView = transformVec(compose(translateM(this._swayX, this._swayY, 0), armsLocal(reach)), handRig)
+    }
     const armModel = (() => {
       if (!this.modelsReady) return null
       if (QA_ARMSONLY) {
@@ -416,15 +458,15 @@ class Game {
       if (this.state !== 'playing') return null
       const invView = mat4.invert(view)
       if (!invView) return null
-      const reach = this._reachT != null ? Math.sin(Math.PI * Math.min(1, (time - this._reachT) / 0.42)) : 0
-      return compose(invView, armsLocal(reach))   // ver game/viewmodel.js
+      return compose(invView, translateM(this._swayX, this._swayY, 0), armsLocal(reach))
     })()
     // lanterna presa às mãos — eixo do modelo (X, lente para +X) apontado a -Z
     const flashModel = (() => {
       if (this.state !== 'playing' || !this.modelsReady) return null
       const invView = mat4.invert(view)
       if (!invView) return null
-      return compose(invView, flashLocal())   // lente (+X) → −Z (testado)
+      const hv = this._handView ?? [0.273, -0.166, -0.361]
+      return compose(invView, translateM(hv[0] - 0.008, hv[1] - 0.005, hv[2] - 0.03), rotYTranslate(0, 0, 0, -Math.PI / 2 - 0.06), rotX(-0.14), scaleM(0.72))
     })()
     const viewProjFinal = mat4.multiply(mat4.create(), persp, view)
     // projeção da sombra da lanterna — nasce na PONTA da lanterna em punho
