@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>THE BACKROOMS — Lobby 0 · NSAMBO</title>
+  <meta name="description" content="Um espaço amarelo interminável. Explore. Encontre a chave. Saia. Motor próprio — NSAMBO." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%230a0805'/><rect x='28' y='28' width='44' height='18' fill='%23ffd894'/><rect x='28' y='54' width='44' height='18' fill='%23b07cff'/></svg>" />
+  <link rel="stylesheet" href="/src/backrooms/backrooms.css" />
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <div id="edge-vignette"></div>
+  <div id="scanlines"></div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-corner tl"></div><div class="hud-corner tr"></div>
+    <div class="hud-corner bl"></div><div class="hud-corner br"></div>
+    <div id="objective">APRENDA O QUARTO. ENCONTRE A CHAVE.</div>
+    <div id="toast"></div>
+    <div id="crosshair"></div>
+    <div id="prompt"></div>
+    <div class="meter" id="stamina-wrap">
+      <div class="label">FÔLEGO</div>
+      <div class="track"><div class="fill" id="stamina-fill" style="width:100%"></div></div>
+    </div>
+    <div class="meter" id="battery-wrap">
+      <div class="label">LANTERNA</div>
+      <div class="track"><div class="fill" id="battery-fill" style="width:100%"></div></div>
+    </div>
+    <div id="key-ind">CHAVE</div>
+    <div id="minimap-wrap">
+      <div class="label">MAPA — M</div>
+      <canvas id="minimap" width="176" height="176"></canvas>
+    </div>
+    <div id="debug"></div>
+  </div>
+
+  <!-- TÍTULO -->
+  <div class="screen show" id="screen-title">
+    <div class="title-big">THE<br/>BACKROOMS</div>
+    <div class="title-sub">LOBBY&nbsp;0&nbsp;—&nbsp;O&nbsp;AMARELO&nbsp;INFINITO</div>
+    <div class="title-tag">Você atravessou uma parede amarela numa loja vazia e caiu num espaço que não deveria existir. Não há janelas. Não há fome. Há apenas mais quarto.</div>
+    <div class="controls">
+      <div><b>W A S D</b> mover &nbsp;·&nbsp; <b>RATO</b> olhar</div>
+      <div><b>SHIFT</b> correr (fôlego) &nbsp;·&nbsp; <b>SPACE</b> saltar</div>
+      <div><b>E</b> interagir &nbsp;·&nbsp; <b>F</b> lanterna</div>
+      <div><b>M</b> mapa &nbsp;·&nbsp; <b>LMB</b> usar ferramenta &nbsp;·&nbsp; <b>Q</b> ferramenta</div>
+      <div><b>ESC</b> pausa</div>
+    </div>
+    <button class="btn" id="btn-start">ACORDAR</button>
+    <div class="volume-row">SOM<input type="range" id="volume" min="0" max="1" step="0.01" value="0.8" /></div>
+    <div class="seed-line" id="seed-label">SEMENTE 1337</div>
+    <div class="violet-note">— NÃO VÁ VER O FUNDO DA LUZ VIOLETA —</div>
+    <div class="fineprint">NSAMBO ENGINE · WFC · PBR · PSX &nbsp;|&nbsp; HEADPHONES RECOMENDADOS</div>
+  </div>
+
+  <!-- PAUSA -->
+  <div class="screen" id="screen-pause">
+    <div class="pause-big">EM SUSPENSÃO</div>
+    <div class="pause-sub">O QUARTO ESPERA</div>
+    <div class="controls" style="margin-top:24px">
+      <div><b>W A S D</b> mover · <b>SHIFT</b> correr · <b>SPACE</b> saltar</div>
+      <div><b>E</b> interagir · <b>F</b> lanterna · <b>M</b> mapa · <b>ESC</b> continuar</div>
+    </div>
+    <button class="btn" id="btn-resume">CONTINUAR</button>
+    <button class="btn ghost" id="btn-restart">RECOMEÇAR (MESMA SEMENTE)</button>
+    <button class="btn ghost" id="btn-newseed">NOVO QUARTO (SEMENTE ALEATÓRIA)</button>
+    <button class="btn ghost" id="btn-mute">SOM: LIGADO</button>
+  </div>
+
+  <!-- FIM -->
+  <div class="screen" id="screen-end">
+    <div class="end-big">A SAÍDA</div>
+    <div class="end-sub">VOCÊ SAIU. PROVAVELMENTE.</div>
+    <div class="end-stats" id="end-stats">TEMPO 00:00 · PASSADAS 0</div>
+    <button class="btn" id="btn-again">DORMIR OUTRA VEZ</button>
+    <div class="fineprint">THE BACKROOMS · LOBBY 0 — SE ISTO NÃO FOI UM SONHO, HÁ TOTAIS ONDE VOCÊ ESTEVE</div>
+  </div>
+
+  <!-- LOADING -->
+  <div id="loading">
+    <div class="l-big">T H E &nbsp; B A C K R O O M S</div>
+    <div id="loading-tip">A ESTICAR O PAPEL DE PAREDE…</div>
+  </div>
+
+  <script type="module" src="/src/backrooms/main.js"></script>
+</body>
+</html>

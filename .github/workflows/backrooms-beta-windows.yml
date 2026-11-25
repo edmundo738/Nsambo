@@ -1,0 +1,79 @@
+name: THE BACKROOMS — Windows beta build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build do jogo (Vite, estático)
+        working-directory: app
+        shell: pwsh
+        run: |
+          npm ci --no-audit --no-fund
+          npx vite build --config vite.config.build.js
+
+      - name: Prepara wrapper desktop
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          npm ci --no-audit --no-fund
+          New-Item -ItemType Directory -Force game | Out-Null
+          Copy-Item -Recurse ../app/dist/* game/
+
+      - name: Empacota .exe Windows x64 (Electron)
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          npm run package
+          Compress-Archive -Path release/NSAMBO-BACKROOMS-win32-x64/* -DestinationPath ../NSAMBO-THE-BACKROOMS-0.1.0-beta-Windows.zip -Force
+
+      - name: Zip do build web (sem exe — abre em qualquer browser)
+        shell: pwsh
+        run: Compress-Archive -Path app/dist/* -DestinationPath NSAMBO-THE-BACKROOMS-0.1.0-beta-web.zip -Force
+
+      - name: Publica/atualiza o Release de beta (prerelease)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = 'backrooms-v0.1.0-beta'
+          $notes = @'
+          ## THE BACKROOMS — BETA FECHADA (Lobby 0 «O Amarelo Infinito»)
+
+          Primeira build pública de teste. Sabemos que está áspera — é a primeira tentativa. Bug reports são bem-vindos: abre uma **Issue** no repositório com o que aconteceu (semente, o que estavas a fazer, print se possível).
+
+          ### Como jogar (Windows)
+          1. Descarrega `NSAMBO-THE-BACKROOMS-0.1.0-beta-Windows.zip`
+          2. Extrai a pasta inteira para onde quiseres (não precisas instalar)
+          3. Duplo-clique em **NSAMBO-BACKROOMS.exe**
+          4. Clica no ecrã para prender o rato (pointer lock). **Esc** liberta o rato.
+
+          Sem exe? Descarrega `NSAMBO-THE-BACKROOMS-0.1.0-beta-web.zip`, extrai e abre `backrooms.html` num browser moderno (Chrome/Edge recomendado, WebGL2 necessário).
+
+          ### Controlos
+          **WASD** andar · **SHIFT** correr (stamina) · **ESPAÇO** saltar · **E** interagir · **F** lanterna · **M** mini-mapa · **Esc** libertar rato
+
+          Objetivo: encontra a chave, abre a porta SAÍDA.
+
+          ### Notas honestas
+          - Só existe o **Lobby 0**; os outros níveis são vapor, por agora.
+          - Testado headless (Linux/SwiftShader): fluxo completo chave→porta→vitória verde em E2E; 300 seeds válidas com caminho spawn→saída. **Ainda não validado em hardware real** — daí esta beta.
+          - FPS/som podem variar por máquina. O jogo corre em WebGL2 dentro de uma janela Electron.
+          '@
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag NSAMBO-THE-BACKROOMS-0.1.0-beta-Windows.zip NSAMBO-THE-BACKROOMS-0.1.0-beta-web.zip --clobber
+          } else {
+            gh release create $tag NSAMBO-THE-BACKROOMS-0.1.0-beta-Windows.zip NSAMBO-THE-BACKROOMS-0.1.0-beta-web.zip --prerelease --target $env:GITHUB_REF_NAME --title 'THE BACKROOMS — Beta 0.1.0 (Lobby 0)' --notes $notes
+          }

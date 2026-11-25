@@ -1,0 +1,17 @@
+{
+  "name": "nsambo-backrooms",
+  "productName": "NSAMBO - THE BACKROOMS",
+  "version": "0.1.0-beta.1",
+  "description": "THE BACKROOMS — beta fechada de testes (NSAMBO ENGINE)",
+  "author": "edmundo738",
+  "license": "UNLICENSED",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-packager . NSAMBO-BACKROOMS --platform=win32 --arch=x64 --out=release --overwrite --ignore=release --ignore=node_modules/.package-lock.json"
+  },
+  "devDependencies": {
+    "electron": "^45.5.0",
+    "@electron/packager": "^20.3.0"
+  }
+}

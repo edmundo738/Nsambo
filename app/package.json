@@ -1,0 +1,20 @@
+{
+  "name": "nsambo-ambiente",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Nsambo — estudo arquitetónico 3D realista (Fase 1: o edifício)",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "screenshot": "node tools/screenshot.mjs"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@sparticuz/chromium": "^153.0.0",
+    "playwright-core": "^1.65.1",
+    "vite": "^7.0.0"
+  }
+}
