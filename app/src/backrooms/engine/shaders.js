@@ -51,6 +51,8 @@ out vec4 fragColor;
 
 uniform vec3 uCameraPos;
 uniform sampler2D tAlbedo, tNormal, tRough, tAO, tHeight;
+uniform sampler2D tEmissive;   // mapa emissivo dedicado (olhos do stalker)
+uniform float uEmissiveMap;    // 0 = emissivo uniforme · 1 = emissivo do mapa
 uniform int  uUntextured;      // 0 = mapas PBR · 1 = parâmetros planos
 uniform vec3 uBaseColor;
 uniform float uMetallic, uRoughness;
@@ -199,7 +201,9 @@ void main() {
   }
 
   // emissivo (painéis fluorescentes / sinal / chave) — modulado pelo albedo
-  color += uEmissiveColor * uEmissive * albedo;
+  vec3 emissive = uEmissiveColor * uEmissive * albedo;
+  if (uEmissiveMap > 0.5) emissive = texture(tEmissive, uv).rgb * uEmissive;   // olhos: brilho próprio
+  color += emissive;
 
   // nevoeiro quente e denso
   float dist = length(uCameraPos - vWorldPos);

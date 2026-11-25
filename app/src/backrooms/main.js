@@ -21,7 +21,6 @@ const DEBUG = params.has('debug')
 const PSX_SNAP = params.has('psx')
 const NO_POM = params.has('nopom')
 const FIXED_SEED = params.has('seed') ? Number(params.get('seed')) : null
-const AUTOSTART = params.has('autostart')
 const OST_ON = params.has('ost')   // OST fora do gameplay por defeito (14 s em loop, briga com o áudio sintético)
 const QA_YAW = params.has('yaw') ? Number(params.get('yaw')) : null
 const QA_PITCH = params.has('pitch') ? Number(params.get('pitch')) : null
@@ -37,6 +36,9 @@ const QA_ARMZ = params.has('armz') ? Number(params.get('armz')) : null
 const QA_ARMS = params.has('arms') ? Number(params.get('arms')) : null
 const QA_ARMX = params.has('armx') ? Number(params.get('armx')) : null
 const QA_HASKEY = params.has('haskey')
+const QA_STALKERDEMO = params.has('stalkerdemo')   // validação: stalker à frente do jogador, em espreita
+const QA_STALKER_DIST = (() => { const v = parseFloat(params.get('stalkerdist') ?? ''); return Number.isFinite(v) ? v : null })()   // QA: distância-alvo do spawn do stalker
+const AUTOSTART = params.has('autostart') || QA_STALKERDEMO
 
 const EYE_FALLBACK = 1.62
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
@@ -82,6 +84,11 @@ class Game {
     this.ost = null   // trilha do título/ambiente — <audio> (m4a)
     this._stepAcc = 0
     this._armSpeed = 0
+    this.stalker = null
+    this.stalkerAssets = null
+    this._noisePulse = 0
+    this._shake = 0
+    this._heartAcc = 0
     this._pushT = null
     this._prevYaw = null
     this._prevPitch = null
@@ -150,6 +157,40 @@ class Game {
     } catch (e) {
       console.error('falha ao carregar modelos:', e)
     }
+    // o stalker é opcional — o jogo corre na mesma sem ele
+    try {
+      this.stalkerAssets = await StalkerEntity.loadAssets(import.meta.env.BASE_URL)
+      await this.renderer.setDynamicModel('stalker', this.stalkerAssets.glb)
+      console.log('stalker: poses bakeadas (rest/idle×3/walk×8/jaw)')
+      if (this.lvl) this._spawnStalker()
+      if (QA_STALKERDEMO) this._setupStalkerDemo()
+    } catch (e) {
+      console.error('stalker não carregou — o jogo continua sem ele:', e)
+    }
+  }
+
+  // célula aberta mais distante do spawn (determinística) — ponto de despertar
+  _farthestOpenCell() {
+    const lvl = this.lvl
+    let best = -1, bd = -1
+    for (let i = 0; i < lvl.cells.length; i++) {
+      if (lvl.cells[i] !== 1) continue
+      const dx = (i % lvl.size) - lvl.spawn.x, dz = Math.floor(i / lvl.size) - lvl.spawn.z
+      const d = dx * dx + dz * dz
+      if (d > bd) { bd = d; best = i }
+    }
+    return best
+  }
+
+  _spawnStalker() {
+    const lvl = this.lvl
+    if (!lvl || !this.stalkerAssets) return
+    const brain = new StalkerBrain({
+      cells: lvl.cells, size: lvl.size,
+      sealedEdges: lvl.sealedEdges, seed: this.seed,
+      startIdx: this._farthestOpenCell(),
+    })
+    this.stalker = new StalkerEntity(this.stalkerAssets, brain)
   }
 
   reset(seed) {
@@ -192,6 +233,7 @@ class Game {
         this.player.x = lvl.spawn.x * CELL + CELL / 2; this.player.z = lvl.spawn.z * CELL + CELL / 2
       }
     }
+    if (this.stalkerAssets) this._spawnStalker()   // seed nova → cérebro novo (determinístico)
     this.hud.setObjective('APRENDA O QUARTO. ENCONTRE A CHAVE.')
     this.hud.setKey(false)
     this.hud.setBattery(1)
@@ -200,6 +242,38 @@ class Game {
     if (DEBUG) {
       console.log('nível válido:', v.ok, '· seed:', seed, '· abertas:', lvl.openCount, '· maxDist:', lvl.maxDist, '· selos:', lvl.sealedEdges.length, '· pilares:', lvl.pillars)
     }
+  }
+
+  _setupStalkerDemo() {
+    if (!this.stalker) return
+    // projeta à frente do jogador (yaw inicial 0.75π) e cria espreita garantida
+    const p = this.player
+    const fx = Math.sin(p.yaw), fz = -Math.cos(p.yaw)
+    const CELL_ = 3.0
+    let best = null, bestScore = Infinity
+    for (let cz = 0; cz < this.lvl.size; cz++) for (let cx = 0; cx < this.lvl.size; cx++) {
+      if (this.lvl.cells[cz * this.lvl.size + cx] !== 1) continue
+      const wx = cx * CELL_ + CELL_ / 2, wz = cz * CELL_ + CELL_ / 2
+      const dx = wx - p.x, dz = wz - p.z
+      const dist = Math.hypot(dx, dz)
+      const target = QA_STALKER_DIST ?? 6.0
+      const band = QA_STALKER_DIST ? 1.6 : 3.5
+      if (dist < target - band || dist > target + band) continue
+      if (!this.player.hasLineOfSight(p.x, p.z, wx, wz)) continue   // à vista — validação justa
+      const ang = Math.abs(Math.atan2(dx, -dz) - p.yaw)   // angular diff (wrap feito no cérebro)
+      const score = Math.abs(dist - target) * 0.25 + Math.abs(ang)
+      if (score < bestScore) { bestScore = score; best = { cx, cz, wx, wz } }
+    }
+    if (!best) return
+    const b = this.stalker.brain
+    b.x = best.wx; b.z = best.wz
+    b.r = best.cz; b.c = best.cx; b.cellIdx = best.cz * this.lvl.size + best.cx
+    b.state = 'stalk'
+    b.dormantTimer = 0
+    b.memPos = [p.x, p.z]
+    b.memAge = 0
+    b.yaw = Math.atan2(p.x - b.x, -(p.z - b.z))
+    console.log('[stalkerdemo] stalker em espreita a', Math.hypot(best.wx - p.x, best.wz - p.z).toFixed(1), 'm')
   }
 
   _start() {
@@ -215,6 +289,7 @@ class Game {
     this.reset(this.seed)
     this.state = 'playing'
     this.hud.hideScreens()
+    if (QA_STALKERDEMO) this._setupStalkerDemo()
     try { this.input.requestLock() } catch { /* headless sem lock */ }
   }
 
@@ -245,7 +320,7 @@ class Game {
       this.renderer.fps = this._fpsFrames / this._fpsTime
       this._fpsFrames = 0; this._fpsTime = 0
       const dbg = $('debug')
-      if (DEBUG && dbg) dbg.textContent = `${this.renderer.fps.toFixed(0)} FPS · SEED ${this.lvl?.seed} · ABC ${this.lvl?.openCount} · MDF ${this.lvl?.maxDist}`
+      if (DEBUG && dbg) dbg.textContent = `${this.renderer.fps.toFixed(0)} FPS · SEED ${this.lvl?.seed} · ABC ${this.lvl?.openCount} · MDF ${this.lvl?.maxDist} · ST ${this.stalker?.brain.state ?? '—'} ${this.stalker ? this.stalker.brain.distance.toFixed(1) + 'm' : ''}`
     }
     if (this.state === 'playing') this._update(dt, t / 1000)
     this._render(t / 1000)
@@ -272,6 +347,21 @@ class Game {
       this.steps++
       this.audio.footstep(cam.sprinting)
     }
+    // ── o stalker — ouve, vê, lembra, decai ───────────────────────
+    if (this._noisePulse > 0) this._noisePulse = Math.max(0, this._noisePulse - dt / 2.4)
+    const noiseNow = Math.max(cam.moving ? (cam.sprinting ? 1.0 : 0.42) : 0, this._noisePulse)
+    if (this.stalker) {
+      const s = this.stalker.update(dt, { px: cam.eyeX, pz: cam.eyeZ, noise: noiseNow, time })
+      const creepable = s.state !== 'dormant' && s.state !== 'gone'
+      this.audio.setStalkerBreath(creepable ? Math.max(0, Math.min(1, 1.35 - s.distance / 9.5)) : 0)
+      for (const ev of s.events) this._onStalkerEvent(ev)
+      if (s.state === 'hunt') {
+        this._heartAcc += dt
+        if (this._heartAcc > 0.66) { this._heartAcc = 0; this.audio.heartThump() }
+      } else this._heartAcc = 0.34
+    }
+    // tremor da câmara (pounce)
+    if (this._shake > 0) this._shake = Math.max(0, this._shake - dt * 1.4)
     // bateria da lanterna
     if (this.flashlightOn && this.battery > 0) {
       this.battery = Math.max(0, this.battery - dt / LEVEL1.batterySeconds)
@@ -333,7 +423,9 @@ class Game {
         this.hud.setObjective('A CHAVE CANTA. ENCONTRE A SAÍDA.')
       } else if (target === 'door') {
         const { state, result } = tryExitDoor(this.puzzle)
+        this._noisePulse = Math.max(this._noisePulse, 0.85)
         this.puzzle = state
+        this._noisePulse = 1.0
         if (result === 'unlocked') {
           this.audio.doorUnlock()
           this.hud.toast('A PORTA CEDE', 2.6)
@@ -381,6 +473,25 @@ class Game {
     this.audio.update(dt)
   }
 
+  _onStalkerEvent(ev) {
+    switch (ev) {
+      case 'spawn': case 'respawn': this.audio.stalkerMurmur(0.5); break
+      case 'heard': this.audio.stalkerMurmur(0.34); break
+      case 'sight-stalk': this.audio.stalkerSting(0.5); break
+      case 'sight-hunt': case 'stalk-hunt': this.audio.stalkerSting(1.0); break
+      case 'pounce':
+        this.audio.stalkerPounce()
+        this.battery = Math.max(0, this.battery - 0.25)
+        this.player.stamina = Math.max(0, this.player.stamina - 0.45)
+        this._shake = 1.0
+        this.hud.toast('ELE TE TOCOU', 2.2)
+        break
+      case 'vanish': this.audio.stalkerVanish(); break
+      case 'lost-trail': break   // silêncio — ele perdeu-te, não tens de saber já
+      default: break
+    }
+  }
+
   _win() {
     if (this.state !== 'playing') return
     this.state = 'finished'
@@ -411,6 +522,12 @@ class Game {
     } else {
       const p = this.player
       camPos = p.camEye ? [...p.camEye] : [p.x, EYE_FALLBACK, p.z]
+      if (this._shake > 0) {
+        const t = this._shake
+        camPos[0] += Math.sin(time * 47.3) * 0.22 * t
+        camPos[1] += Math.cos(time * 39.7) * 0.16 * t
+        camPos[2] += Math.sin(time * 43.1 + 1.3) * 0.22 * t
+      }
       const look = p.lookDir()
       view = mat4.lookAt(camPos, [camPos[0] + look[0], camPos[1] + look[1], camPos[2] + look[2]], [0, 1, 0])
     }
@@ -452,6 +569,13 @@ class Game {
         this._handViewL = transformVec(compose(translateM(this._swayX, this._swayY, 0), armsLocal(reach)), handRigL)
       }
     }
+    const stalkerMatrix = (() => {
+      const st = this.stalker
+      if (!st || !st.present) return null
+      const m = st.matrix()
+      return compose(translateM(m.x, m.y, m.z), rotYTranslate(0, 0, 0, m.yaw), scaleM(1))
+    })()
+    if (this.stalker && this.stalker.present) this.renderer.updateDynamic('stalker', this.stalker.positions)
     const armModel = (() => {
       if (!this.modelsReady) return null
       if (QA_ARMSONLY) {
@@ -534,6 +658,7 @@ class Game {
       keyHot: this._keyTargeted ? 1.0 + 0.35 * Math.sin(time * 7) : 0.6,
       armMatrix: armModel,
       flashMatrix: flashModel,
+      stalkerMatrix,
       grain: lvl.grain,
       vignette: lvl.vignette,
       levels: lvl.levels,
@@ -544,7 +669,9 @@ class Game {
 function easeInOut(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2 }
 
 // arranque: carregar texturas e só depois criar o jogo
-import { loadAllTextures } from './engine/textures.js'
+import { loadAllTextures, loadPBRSet, loadOne } from './engine/textures.js'
+import { StalkerEntity } from './game/stalker-entity.js'
+import { StalkerBrain } from './game/stalker-ai.mjs'
 const boot = async () => {
   const canvas = document.getElementById('gl')
   const gl = canvas.getContext('webgl2')
@@ -554,6 +681,13 @@ const boot = async () => {
     const renderer = new Renderer(canvas, { psxSnap: PSX_SNAP, pom: !NO_POM })
     renderer.init()
     const textures = await loadAllTextures(renderer.gl, import.meta.env.BASE_URL + 'textures/backrooms')
+    // o stalker tem PBR próprio (assets/textures/stalker/skin.*)
+    try {
+      textures.stalker = await loadPBRSet(renderer.gl, import.meta.env.BASE_URL + 'textures/stalker/skin')
+      textures.stalkerEmissive = await loadOne(renderer.gl, import.meta.env.BASE_URL + 'textures/stalker/stalker.emissive.jpg', { srgb: true })
+    } catch (e) {
+      console.error('texturas do stalker não carregaram — o jogo continua sem ele:', e)
+    }
     renderer.setTextures(textures)
     window.__game = new Game(renderer)
     $('loading').classList.add('done')

@@ -1,6 +1,6 @@
 // NSAMBO ENGINE — textures.js — carregador de texturas + mapas PBR derivados
 // Convenção: cada material tem até 5 mapas em /textures/backrooms/<nome>[.<mapa>].jpg
-async function loadOne(gl, url, { srgb = false, mipmap = true, flipY = true } = {}) {
+export async function loadOne(gl, url, { srgb = false, mipmap = true, flipY = true } = {}) {
   const img = await new Promise((res, rej) => {
     const i = new Image()
     i.crossOrigin = 'anonymous'

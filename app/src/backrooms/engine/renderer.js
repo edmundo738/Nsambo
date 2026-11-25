@@ -43,7 +43,7 @@ export class Renderer {
     this.progPost = link(gl, VS_POST, FS_POST)
     this.uMain = uniforms(gl, this.progMain, [
       'uViewProj', 'uModel', 'uCameraPos',
-      'tAlbedo', 'tNormal', 'tRough', 'tAO', 'tHeight', 'tShadowMap',
+      'tAlbedo', 'tNormal', 'tRough', 'tAO', 'tHeight', 'tShadowMap', 'tEmissive', 'uEmissiveMap',
       'uUntextured', 'uBaseColor', 'uMetallic', 'uRoughness', 'uEmissiveColor', 'uEmissive',
       'uPomScale', 'uNormalFlip', 'uAlbedoTint', 'uHemiSky', 'uHemiGround', 'uHemiIntensity',
       'uPointCount', 'uPointPos', 'uPointColor', 'uPointRadius',
@@ -204,6 +204,9 @@ export class Renderer {
       const v = Math.sin(t * 11 + ph) * Math.sin(t * 4.7 + ph * 1.7 + 1.3)
       return { ...m, model: IDENTITY, flick: v > -0.35 ? 1.15 : 0.15 }
     }), ...dynMeshes]
+    if (frame.stalkerMatrix && this.mesh_stalker) {
+      all.push({ ...this.mesh_stalker, model: frame.stalkerMatrix, material: 'modelStalker', pulse: 2.75 + 0.55 * Math.sin(frame.time * 1.65 + 0.8) })
+    }
 
     // ── passe de sombra (só a lanterna projecta) ──────────────────
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowFbo)
@@ -305,6 +308,7 @@ export class Renderer {
     gl.uniformMatrix4fv(u.uModel, false, m.model ?? IDENTITY)
     // por omissão: sem emissivo / sem POM / não untextured
     gl.uniform1i(u.uUntextured, 0)
+    gl.uniform1f(u.uEmissiveMap, 0)
     gl.uniform1f(u.uEmissive, 0)
     gl.uniform3f(u.uEmissiveColor, 1, 1, 1)
     gl.uniform1f(u.uPomScale, 0)
@@ -412,6 +416,18 @@ export class Renderer {
         gl.uniform1i(u.uUntextured, 2)
         gl.uniform1f(u.uRoughness, 0.85)
         gl.uniform1f(u.uMetallic, 0.0)
+        break
+      }
+      case 'modelStalker': {
+        bindSet(this.textures.stalker)
+        if (T.stalkerEmissive) {
+          gl.uniform1i(u.tEmissive, tex(6, T.stalkerEmissive))
+          gl.uniform1f(u.uEmissiveMap, 1)
+          gl.uniform1f(u.uEmissive, m.pulse ?? 1.3)   // olhos em brasa — pulso lento
+        }
+        gl.uniform1f(u.uRoughness, 0.58)
+        gl.uniform1f(u.uMetallic, 0.0)
+        gl.uniform3f(u.uAlbedoTint, 0.88, 0.82, 0.82)
         break
       }
       case 'modelArms': {

@@ -3,11 +3,11 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Nsambo — estudo arquitetónico 3D realista (Fase 1: o edifício)",
+  "description": "Nsambo \u2014 estudo arquitet\u00f3nico 3D realista (Fase 1: o edif\u00edcio)",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
-    "test": "node --test test/puzzle.test.mjs test/wfc.test.mjs test/viewmodel.test.mjs test/interaction.test.mjs test/arms-poses.test.mjs",
+    "test": "node --test test/stalker.test.mjs test/puzzle.test.mjs test/wfc.test.mjs test/viewmodel.test.mjs test/interaction.test.mjs test/arms-poses.test.mjs",
     "screenshot": "node tools/screenshot.mjs"
   },
   "dependencies": {

@@ -92,7 +92,6 @@ export class GameAudio {
     else { bp.connect(g); g.connect(this.master) }
     src.start(t0); src.stop(t0 + 1.7)
   }
-  update(dt) { this._buzzTimer += dt; if (this._buzzTimer > 34 + Math.sin(this._buzzTimer * 0.13) * 12) { this._buzzTimer = 0; this.ballastBuzz() } }
   footstep(run = false) {
     if (!this.ensure()) return
     const ctx = this.ctx, t0 = ctx.currentTime
@@ -170,6 +169,119 @@ export class GameAudio {
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.9)
     src.connect(lp); lp.connect(g); g.connect(this.master)
     src.start(t0 + 0.25); src.stop(t0 + 2.0)
+  }
+  // ── o stalker — tudo sintetizado, sem assets, tensão por previsão ──
+  stalkerMurmur(strength = 0.5) {
+    if (!this.ensure()) return
+    const ctx = this.ctx, t0 = ctx.currentTime
+    // gemido grave sem palavras — dois formantes que escorrem para baixo
+    for (const [f0, f1, vol] of [[88, 64, 0.34], [132, 96, 0.18], [55, 41, 0.4]]) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, t0)
+      o.frequency.exponentialRampToValueAtTime(f1, t0 + 1.7)
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 3.4
+      bp.frequency.setValueAtTime(420, t0)
+      bp.frequency.exponentialRampToValueAtTime(260, t0 + 1.7)
+      const g = ctx.createGain()
+      g.gain.setValueAtTime(0.0001, t0)
+      g.gain.exponentialRampToValueAtTime(vol * strength, t0 + 0.22)
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.9)
+      o.connect(bp); bp.connect(g); g.connect(this.master); o.start(t0); o.stop(t0 + 2.0)
+    }
+  }
+  stalkerSting(level = 1) {
+    if (!this.ensure()) return
+    const ctx = this.ctx, t0 = ctx.currentTime
+    // descoberta — batida surda + agudo que se desfia (não é um grito de filme)
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(196, t0)
+    o.frequency.exponentialRampToValueAtTime(73, t0 + 0.55)
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(0.5 * level, t0 + 0.006)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.75)
+    o.connect(g); g.connect(this.master); o.start(t0); o.stop(t0 + 0.8)
+    const src = ctx.createBufferSource(); src.buffer = this._white(); src.playbackRate.value = 1.6
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.setValueAtTime(2800, t0)
+    bp.frequency.exponentialRampToValueAtTime(900, t0 + 0.9); bp.Q.value = 7
+    const g2 = ctx.createGain()
+    g2.gain.setValueAtTime(0.0001, t0 + 0.05)
+    g2.gain.exponentialRampToValueAtTime(0.14 * level, t0 + 0.09)
+    g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.1)
+    src.connect(bp); bp.connect(g2); g2.connect(this.master); src.start(t0 + 0.05); src.stop(t0 + 1.2)
+  }
+  stalkerPounce() {
+    if (!this.ensure()) return
+    const ctx = this.ctx, t0 = ctx.currentTime
+    // impacto + guincho invertido (a mandíbula não respeita a anatomia)
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(60, t0)
+    o.frequency.exponentialRampToValueAtTime(34, t0 + 0.5)
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(0.9, t0 + 0.008)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.6)
+    o.connect(g); g.connect(this.master); o.start(t0); o.stop(t0 + 0.65)
+    const o2 = ctx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.setValueAtTime(1400, t0 + 0.06)
+    o2.frequency.exponentialRampToValueAtTime(380, t0 + 0.85)
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 2.2; bp.frequency.value = 900
+    const g2 = ctx.createGain()
+    g2.gain.setValueAtTime(0.0001, t0 + 0.06)
+    g2.gain.exponentialRampToValueAtTime(0.3, t0 + 0.1)
+    g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.95)
+    o2.connect(bp); bp.connect(g2); g2.connect(this.master); o2.start(t0 + 0.06); o2.stop(t0 + 1.0)
+  }
+  stalkerVanish() {
+    if (!this.ensure()) return
+    const ctx = this.ctx, t0 = ctx.currentTime
+    // raspado que sobe e se desfaz — o silêncio volta errado
+    const src = ctx.createBufferSource(); src.buffer = this._noise(); src.playbackRate.setValueAtTime(0.45, t0)
+    src.playbackRate.exponentialRampToValueAtTime(1.4, t0 + 1.15)
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 5.5
+    bp.frequency.setValueAtTime(140, t0)
+    bp.frequency.exponentialRampToValueAtTime(1500, t0 + 1.1)
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.5)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.35)
+    src.connect(bp); bp.connect(g); g.connect(this.master); src.start(t0); src.stop(t0 + 1.4)
+  }
+  heartThump() {
+    if (!this.ensure()) return
+    const ctx = this.ctx, t0 = ctx.currentTime
+    for (const [delay, vol] of [[0, 0.34], [0.16, 0.2]]) {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = 52
+      const g = ctx.createGain()
+      g.gain.setValueAtTime(0.0001, t0 + delay)
+      g.gain.exponentialRampToValueAtTime(vol, t0 + delay + 0.01)
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + delay + 0.12)
+      o.connect(g); g.connect(this.master); o.start(t0 + delay); o.stop(t0 + delay + 0.15)
+    }
+  }
+  // respiração próxima — chamada no update com nível 0..1; rajadas irregulares + apneias
+  setStalkerBreath(level) { this._breathLevel = Math.max(0, Math.min(1, level)) }
+  _breathBurst(exhale) {
+    const ctx = this.ctx, t0 = ctx.currentTime, lvl = this._breathLevel ?? 0
+    const src = ctx.createBufferSource(); src.buffer = this._white()
+    src.playbackRate.value = exhale ? 0.55 : 0.8
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.1
+    bp.frequency.value = exhale ? 320 : 480
+    const g = ctx.createGain()
+    const dur = exhale ? 0.62 : 0.4
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(0.028 + lvl * 0.11, t0 + (exhale ? 0.22 : 0.09))
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+    src.connect(bp); bp.connect(g); g.connect(this.master); src.start(t0); src.stop(t0 + dur + 0.02)
+  }
+  update(dt) { this._buzzTimer += dt; if (this._buzzTimer > 34 + Math.sin(this._buzzTimer * 0.13) * 12) { this._buzzTimer = 0; this.ballastBuzz() }
+    // respiração irregular: inspira → expira → pausa aleatória; por vezes apneia longa
+    const lvl = this._breathLevel ?? 0
+    if (this.ctx && lvl > 0.02) {
+      this._breathT = (this._breathT ?? 0) - dt
+      if (this._breathT <= 0) {
+        const r = Math.random()
+        if (this._breathPhase === 'in') { this._breathBurst(true); this._breathPhase = 'out'; this._breathT = 0.62 }
+        else if (r < 0.18) { this._breathPhase = 'in'; this._breathT = 1.6 + Math.random() * 1.3 }   // apneia
+        else { this._breathBurst(false); this._breathPhase = 'in'; this._breathT = 0.4 + Math.random() * 0.5 }
+      }
+    } else { this._breathPhase = 'out'; this._breathT = 0 }
   }
   uiTick() {
     if (!this.ensure()) return
