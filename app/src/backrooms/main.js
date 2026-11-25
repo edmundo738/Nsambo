@@ -349,13 +349,27 @@ class Game {
     const dt = Math.min(0.05, this._last ? (t - this._last) / 1000 : 0.016)
     this._last = t
     this.frameCount = (this.frameCount ?? 0) + 1
+    // métricas completas (só lidas com ?debug): buffer de tempos de quadro em ms
+    const FRN = 2048
+    if (!this._ftRing) { this._ftRing = new Float32Array(FRN); this._ftLen = 0; this._ftIdx = 0; this._ftMax = 0 }
+    this._ftRing[this._ftIdx] = dt * 1000
+    this._ftMax = Math.max(this._ftMax, dt * 1000)
+    this._ftIdx = (this._ftIdx + 1) % FRN
+    this._ftLen = Math.min(this._ftLen + 1, FRN)
     this._fpsFrames = (this._fpsFrames ?? 0) + 1
     this._fpsTime = (this._fpsTime ?? 0) + dt
     if (this._fpsTime >= 0.5) {
       this.renderer.fps = this._fpsFrames / this._fpsTime
       this._fpsFrames = 0; this._fpsTime = 0
       const dbg = $('debug')
-      if (DEBUG && dbg) dbg.textContent = `${this.renderer.fps.toFixed(0)} FPS · SEED ${this.lvl?.seed} · ABC ${this.lvl?.openCount} · MDF ${this.lvl?.maxDist} · ST ${this.stalker?.brain.state ?? '—'} ${this.stalker ? this.stalker.brain.distance.toFixed(1) + 'm' : ''}`
+      if (DEBUG && dbg) {
+        const a = [...this._ftRing.subarray(0, this._ftLen)].sort((x, y) => x - y)
+        const q = (p) => a[Math.min(a.length - 1, Math.floor(p * a.length))]
+        let over16 = 0, over33 = 0
+        for (const v of a) { if (v > 33.33) over33++; else if (v > 16.67) over16++ }
+        dbg.textContent = `${this.renderer.fps.toFixed(0)} FPS · p95 ${q(0.95).toFixed(1)}ms · p99 ${q(0.99).toFixed(1)}ms · máx ${this._ftMax.toFixed(1)}ms · >16.7:${over16} >33.3:${over33} · SEED ${this.lvl?.seed} · ABC ${this.lvl?.openCount} · MDF ${this.lvl?.maxDist} · ST ${this.stalker?.brain.state ?? '—'} ${this.stalker ? this.stalker.brain.distance.toFixed(1) + 'm' : ''}`
+        this._ftMax = 0
+      }
     }
     if (this.state === 'playing') this._update(dt, t / 1000)
     this._render(t / 1000)
@@ -799,6 +813,7 @@ const boot = async () => {
     }
     renderer.setTextures(textures)
     window.__game = new Game(renderer)
+    window.__READY = true   // gancho para ferramentas headless (QA/captura) — sem efeito no jogo
     $('loading').classList.add('done')
     if (AUTOSTART) {
       try { window.__game._start() } catch (e) { console.error('autostart:', e) }
