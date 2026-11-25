@@ -1,0 +1,10 @@
+{
+  "name": "nsambo-backrooms-desktop",
+  "productName": "NSAMBO-BACKROOMS",
+  "version": "0.1.0-beta.1",
+  "private": true,
+  "description": "THE BACKROOMS — beta de testes (NSAMBO ENGINE), shell Tauri",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0"
+  }
+}
