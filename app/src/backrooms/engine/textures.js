@@ -1,6 +1,6 @@
 // NSAMBO ENGINE — textures.js — carregador de texturas + mapas PBR derivados
 // Convenção: cada material tem até 5 mapas em /textures/backrooms/<nome>[.<mapa>].jpg
-async function loadOne(gl, url, { srgb = false, mipmap = true } = {}) {
+async function loadOne(gl, url, { srgb = false, mipmap = true, flipY = true } = {}) {
   const img = await new Promise((res, rej) => {
     const i = new Image()
     i.crossOrigin = 'anonymous'
@@ -10,7 +10,7 @@ async function loadOne(gl, url, { srgb = false, mipmap = true } = {}) {
   })
   const tex = gl.createTexture()
   gl.bindTexture(gl.TEXTURE_2D, tex)
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, flipY)
   void(srgb) // pipeline em gamma space (estilo PSX) — sem conversões
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img)
   if (mipmap) {
@@ -31,28 +31,29 @@ async function loadOne(gl, url, { srgb = false, mipmap = true } = {}) {
   return tex
 }
 
-export async function loadPBRSet(gl, base, { normalFlip = 1 } = {}) {
+export async function loadPBRSet(gl, base, { normalFlip = 1, flipY = true } = {}) {
   const [albedo, normal, roughness, ao, height] = await Promise.all([
-    loadOne(gl, `${base}.jpg`, { srgb: true }),
-    loadOne(gl, `${base}.normal.jpg`),
-    loadOne(gl, `${base}.roughness.jpg`),
-    loadOne(gl, `${base}.ao.jpg`),
-    loadOne(gl, `${base}.height.jpg`),
+    loadOne(gl, `${base}.jpg`, { srgb: true, flipY }),
+    loadOne(gl, `${base}.normal.jpg`, { flipY }),
+    loadOne(gl, `${base}.roughness.jpg`, { flipY }),
+    loadOne(gl, `${base}.ao.jpg`, { flipY }),
+    loadOne(gl, `${base}.height.jpg`, { flipY }),
   ])
   return { albedo, normal, roughness, ao, height, normalFlip }
 }
 
 export async function loadAllTextures(gl, basePath = '/textures/backrooms') {
-  const [wall, carpet, ceiling, eye, mountains] = await Promise.all([
+  const [wall, carpet, ceiling, eye, mountains, key] = await Promise.all([
     loadPBRSet(gl, `${basePath}/wallpaper-yellow`),
     loadPBRSet(gl, `${basePath}/carpet-tile`),
     loadPBRSet(gl, `${basePath}/ceiling-tile`),
     loadOne(gl, `${basePath}/painting-eye.jpg`, { srgb: true }),
     loadOne(gl, `${basePath}/painting-mountains.jpg`, { srgb: true }),
+    loadPBRSet(gl, `${basePath}/key-gold`, { normalFlip: 1, flipY: false }),
   ])
   // sinal SAÍDA — tipografia gerada em canvas (não é textura de material pintada à mão)
   const sign = makeSignTexture(gl)
-  return { wall, carpet, ceiling, eye, mountains, sign }
+  return { wall, carpet, ceiling, eye, mountains, key, sign }
 }
 
 function makeSignTexture(gl) {

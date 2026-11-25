@@ -177,7 +177,7 @@ export class Renderer {
     const gl = this.gl
     const dynMeshes = [
       frame.doorMatrix ? { ...this.mesh_door, model: frame.doorMatrix } : { ...this.mesh_door, model: IDENTITY },
-      ...(frame.keyVisible && this.mesh_key ? [{ ...this.mesh_key, model: frame.keyMatrix }] : []),
+      ...(frame.keyVisible && this.mesh_key ? [{ ...this.mesh_key, model: frame.keyMatrix, hot: frame.keyHot }] : []),
     ]
     const all = [...this.meshes.map(m => ({ ...m, model: IDENTITY })), ...dynMeshes]
 
@@ -336,17 +336,13 @@ export class Renderer {
         gl.uniform3fv(u.uEmissiveColor, m.untextured.emissive)
         gl.uniform1f(u.uEmissive, 1.35)
         break
-      case 'modelKey': {
-        const t = this.tex_key
-        gl.activeTexture(gl.TEXTURE0); if (t) gl.bindTexture(gl.TEXTURE_2D, t)
-        gl.uniform1i(u.tAlbedo, 0)
-        gl.uniform1i(u.uUntextured, 2)
-        gl.uniform1f(u.uRoughness, 0.42)
-        gl.uniform1f(u.uMetallic, 0.35)
-        gl.uniform3f(u.uEmissiveColor, 1.0, 0.62, 0.16)
-        gl.uniform1f(u.uEmissive, 0.9)
+      case 'modelKey':
+        bindSet(this.textures.key)
+        gl.uniform1f(u.uMetallic, 0.55)
+        gl.uniform3f(u.uEmissiveColor, 1.0, 0.68, 0.22)
+        gl.uniform1f(u.uEmissive, m.hot ?? 0.6)
+        gl.uniform3f(u.uAlbedoTint, 1.06, 1.0, 0.85)
         break
-      }
       case 'modelFlash': {
         const t = this.tex_flash
         if (t) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t) }

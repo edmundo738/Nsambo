@@ -7,7 +7,8 @@ try {
     '.js'='text/javascript; charset=utf-8'; '.mjs'='text/javascript; charset=utf-8'
     '.css'='text/css; charset=utf-8'; '.json'='application/json'
     '.jpg'='image/jpeg'; '.jpeg'='image/jpeg'; '.png'='image/png'; '.webp'='image/webp'; '.gif'='image/gif'; '.svg'='image/svg+xml'
-    '.mp3'='audio/mpeg'; '.ogg'='audio/ogg'; '.wav'='audio/wav'
+    '.mp3'='audio/mpeg'; '.ogg'='audio/ogg'; '.wav'='audio/wav'; '.m4a'='audio/mp4'
+    '.glb'='model/gltf-binary'; '.gltf'='model/gltf+json'; '.bin'='application/octet-stream'
     '.txt'='text/plain; charset=utf-8'; '.woff2'='font/woff2'
   }
   $listener = $null

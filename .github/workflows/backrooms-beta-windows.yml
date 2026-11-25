@@ -27,6 +27,25 @@ jobs:
           npx vite build --config vite.config.build.js
           Copy-Item ../launcher/* dist/
 
+      - name: Verifica o dist (falha o build se faltar algo)
+        shell: pwsh
+        run: |
+          $required = @(
+            'app/dist/backrooms.html',
+            'app/dist/JOGAR.bat',
+            'app/dist/server.ps1',
+            'app/dist/COMO-JOGAR.txt',
+            'app/dist/models/arms_rig.glb',
+            'app/dist/models/psx_house_key.glb',
+            'app/dist/models/psx_flashlight.glb',
+            'app/dist/ost/over-the-radio.m4a',
+            'app/dist/textures/backrooms/wallpaper-yellow.jpg',
+            'app/dist/textures/backrooms/key-gold.jpg'
+          )
+          $missing = $required | Where-Object { -not (Test-Path $_) }
+          if ($missing) { $missing | ForEach-Object { Write-Host "FALTA: $_" }; exit 1 }
+          Write-Host 'dist íntegro: launcher + modelos + texturas + OST presentes'
+
       - name: Rust toolchain (Tauri)
         uses: dtolnay/rust-toolchain@stable
 
@@ -53,7 +72,14 @@ jobs:
 
       - name: Zip do build web (sem exe — abre em qualquer browser)
         shell: pwsh
-        run: Compress-Archive -Path app/dist/* -DestinationPath NSAMBO-THE-BACKROOMS-0.1.0-beta-web.zip -Force
+        run: |
+          Compress-Archive -Path app/dist/* -DestinationPath NSAMBO-THE-BACKROOMS-0.1.0-beta-web.zip -Force
+          Expand-Archive -Path NSAMBO-THE-BACKROOMS-0.1.0-beta-web.zip -DestinationPath web-check -Force
+          $required = @('web-check/backrooms.html', 'web-check/JOGAR.bat', 'web-check/server.ps1', 'web-check/COMO-JOGAR.txt', 'web-check/models/arms_rig.glb', 'web-check/textures/backrooms/key-gold.jpg')
+          $missing = $required | Where-Object { -not (Test-Path $_) }
+          Remove-Item web-check -Recurse -Force
+          if ($missing) { $missing | ForEach-Object { Write-Host "ZIP SEM: $_" }; exit 1 }
+          Write-Host 'web.zip íntegro: abre com JOGAR.bat'
 
       - name: Publica/atualiza o Release de beta (prerelease)
         shell: pwsh
@@ -67,13 +93,21 @@ jobs:
           Primeira build pública de teste. Sabemos que está áspera — é a primeira tentativa. Bug reports são bem-vindos: abre uma **Issue** no repositório com o que aconteceu (semente, o que estavas a fazer, print se possível).
 
           ### Como jogar (Windows)
+
+          **Opção A — instalador (recomendado):**
           1. Descarrega `NSAMBO-THE-BACKROOMS-0.1.0-beta-Windows-setup.exe`
           2. Executa o instalador (segundos) e abre pelo atalho «NSAMBO-BACKROOMS»
           3. Clica no ecrã para prender o rato (pointer lock). **Esc** liberta o rato.
 
-          (Usa o WebView2 que já vem no Windows — sem Chromium embutido, por isso são só poucos MB.)
+          **Opção B — sem instalar (web.zip):**
+          1. Descarrega `NSAMBO-THE-BACKROOMS-0.1.0-beta-web.zip`
+          2. **Extrai o ZIP INTEIRO** para uma pasta nova (ex.: Documentos\Backrooms)
+          3. **Duplo-clique em `JOGAR.bat`** (a pasta tem de conter JOGAR.bat e server.ps1)
+          4. O browser abre sozinho em `http://127.0.0.1:8321/backrooms.html` — joga a partir daí.
 
-          Sem instalar? `NSAMBO-THE-BACKROOMS-0.1.0-beta-web.zip` — extrai e duplo-clique em `JOGAR.bat`.
+          A pasta extraída tem de ter: `backrooms.html`, `JOGAR.bat`, `server.ps1`, `COMO-JOGAR.txt`, `assets/`, `textures/`, `models/`, `ost/`. Se faltar o `JOGAR.bat`, o download ficou incompleto — apaga e descarrega outra vez, ou usa o instalador (Opção A). Não precisas de npm/node/vite.
+
+          (Usa o WebView2 que já vem no Windows — sem Chromium embutido, por isso são só poucos MB.)
 
           ### Controlos
           **WASD** andar · **SHIFT** correr (stamina) · **ESPAÇO** saltar · **E** interagir · **F** lanterna · **M** mini-mapa · **Esc** libertar rato

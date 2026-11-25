@@ -7,6 +7,17 @@ FORMA CERTA DE JOGAR (Windows):
   3. Abre-se o browser sozinho em http://127.0.0.1:8321/backrooms.html
   4. Clica no ecrã para prender o rato. Esc liberta-o.
 
+SE NESTA PASTA FALTAR O JOGAR.bat:
+  - o download ficou incompleto (ou o antivírus apagou o .bat);
+  - descarrega outra vez: https://github.com/edmundo738/Nsambo/releases/tag/backrooms-v0.1.0-beta
+  - extrai para uma pasta NOVA e verifica que lá estão JOGAR.bat e server.ps1;
+  - alternativa: usa o instalador NSAMBO-THE-BACKROOMS-0.1.0-beta-Windows-setup.exe
+    (duplo-clique, instala, abre pelo atalho «NSAMBO-BACKROOMS»).
+
+NÃO precisas de instalar nada (npm/node/vite) — o JOGAR.bat faz tudo.
+(O endereço localhost:5173 é só para quem está a desenvolver o jogo;
+ para jogar a beta usa o JOGAR.bat ou o instalador.)
+
 NÃO abras backrooms.html diretamente com duplo-clique:
   - o Chrome/Edge bloqueiam o jogo por segurança (módulos ES em file://);
   - o JOGAR.bat resolve isso com um servidor local só teu, sem internet.

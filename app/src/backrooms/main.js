@@ -26,6 +26,11 @@ const QA_NOFLASH = params.has('noflash')
 const QA_ARMSONLY = params.has('armsonly')
 const QA_ARMTIME = params.has('armtime') ? Number(params.get('armtime')) : null
 const QA_ARMANIM = params.has('armanim') ? params.get('armanim') : null
+const QA_ARMYAW = params.has('armyaw') ? Number(params.get('armyaw')) : null
+const QA_ARMY = params.has('army') ? Number(params.get('army')) : null
+const QA_ARMZ = params.has('armz') ? Number(params.get('armz')) : null
+const QA_ARMS = params.has('arms') ? Number(params.get('arms')) : null
+const QA_ARMX = params.has('armx') ? Number(params.get('armx')) : null
 
 const EYE_FALLBACK = 1.62
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
@@ -45,6 +50,11 @@ const rotZ = (r) => {
 const scaleM = (s) => new Float32Array([s, 0, 0, 0, 0, s, 0, 0, 0, 0, s, 0, 0, 0, 0, 1])
 const translateM = (x, y, z) => translation(x, y, z)
 const compose = (...ms) => ms.reduce((a, b) => mat4.multiply(mat4.create(), a, b))
+const transformVec = (m, [x, y, z]) => [
+  m[0] * x + m[4] * y + m[8] * z + m[12],
+  m[1] * x + m[5] * y + m[9] * z + m[13],
+  m[2] * x + m[6] * y + m[10] * z + m[14],
+]
 
 class Game {
   constructor(renderer) {
@@ -241,15 +251,22 @@ class Game {
       this.hud.setBattery(this.battery)
     }
     if (pressed('KeyM')) { this.hud.toggleMinimap(); this.audio.uiTick() }
-    // alvo de interação
+    // alvo de interação — raycast do centro da câmara (alcance curto, esfera r=0.42)
     const px = cam.eyeX, pz = cam.eyeZ
+    const eyeY = cam.eyeY ?? EYE_FALLBACK
     const look = player.lookDir()
+    const raySphere = (cx, cy, cz, radius, range) => {
+      const dx = cx - px, dy = cy - eyeY, dz = cz - pz
+      const t = dx * look[0] + dy * look[1] + dz * look[2]
+      if (t < 0 || t > range) return false
+      const qx = px + look[0] * t - cx, qy = eyeY + look[1] * t - cy, qz = pz + look[2] * t - cz
+      return (qx * qx + qy * qy + qz * qz) < radius * radius
+    }
     let prompt = null, target = null
     if (!this.puzzle.keyTaken && built.keyPos) {
-      const dx = built.keyPos.x - px, dz = built.keyPos.z - pz
-      const d = Math.hypot(dx, dz)
-      const cos = d > 0.9 ? (dx * look[0] + dz * look[2]) / d : 1
-      if (d < 3.0 && cos > 0.45) { prompt = '[E] APANHAR A CHAVE'; target = 'key' }
+      if (raySphere(built.keyPos.x, built.keyPos.y + 0.52, built.keyPos.z, 0.46, 2.5)) {
+        prompt = '[E] APANHAR A CHAVE'; target = 'key'
+      }
     }
     const ddx = built.door.x - px, ddz = built.door.z - pz
     const doorDist = Math.hypot(ddx, ddz)
@@ -258,10 +275,13 @@ class Game {
       prompt = this.puzzle.hasKey ? '[E] ABRIR A SAÍDA' : 'PORTA TRANCADA'
       target = 'door'
     }
+    this._keyTargeted = target === 'key'
+    const chEl = $('crosshair'); if (chEl) chEl.classList.toggle('active', !!target)
     this.hud.prompt(prompt)
     if (pressed('KeyE')) {
       if (target === 'key') {
         this.puzzle = pickKey(this.puzzle)
+        this._reachT = time
         this.audio.keyPickup()
         this.hud.toast('CHAVE ADQUIRIDA — ELA PESA DEMAIS', 3.2)
         this.hud.setKey(true)
@@ -360,13 +380,12 @@ class Game {
       if (!built || !built.keyPos || this.puzzle?.keyTaken) return IDENTITY
       const bob = Math.sin(time * 1.7) * 0.05
       // GLB: deitado em XZ, pivot no fundo do aro → levanta-o e põe-no de pé
-      // GLB deitado em XZ (cara para cima) — flutua sobre o pedestal a rodar
-      // de costas para o céu, cara inclinada para o jogador (+Z), flutua sobre o pedestal
+      // chave na vertical (face virada ao jogador) a rodar devagar em redor de Y
       return compose(
-        translateM(built.keyPos.x, built.keyPos.y + bob + 0.26, built.keyPos.z),
-        rotYTranslate(0, 0, 0, Math.sin(time * 0.7) * 0.5),   // balanço suave, nunca de perfil
-        rotX(1.3),
-        scaleM(8.0),
+        translateM(built.keyPos.x, built.keyPos.y + bob + 0.52, built.keyPos.z),
+        rotYTranslate(0, 0, 0, Math.sin(time * 0.7) * 0.6), // face permanente para o jogador
+        rotX(Math.PI / 2),
+        scaleM(10.0),
       )
     })()
     // braços do jogador (viewmodel): presos à câmara, fora do mundo
@@ -377,15 +396,24 @@ class Game {
         const sc = this.lvl ? { x: this.lvl.spawn.x * CELL + CELL / 2, z: this.lvl.spawn.z * CELL + CELL / 2 } : { x: 40, z: 40 }
         camPos = [sc.x, 1.5, sc.z + 2.6]
         view = mat4.lookAt(camPos, [sc.x, 1.0, sc.z], [0, 1, 0])
-        return compose(translateM(sc.x, 1.15, sc.z), scaleM(0.62), translateM(0, -1.38, 0))
+        return compose(
+          translateM(sc.x, QA_ARMY ?? 1.15, sc.z),
+          rotYTranslate(0, 0, 0, QA_ARMYAW ?? Math.PI),
+          scaleM(QA_ARMS ?? 0.62),
+          translateM(0, -1.38, 0),
+        )
       }
       if (this.state !== 'playing') return null
       const invView = mat4.invert(view)
       if (!invView) return null
+      const reach = this._reachT != null ? Math.sin(Math.PI * Math.min(1, (time - this._reachT) / 0.42)) : 0
+      const armY = QA_ARMY ?? -0.28 - 0.05 * reach
+      const armZ = QA_ARMZ ?? -0.53 + 0.17 * reach
       return compose(
         invView,
-        translateM(0.12, -0.29, -0.52),
-        scaleM(0.46),
+        translateM(QA_ARMX ?? 0.0, armY, armZ),
+        rotYTranslate(0, 0, 0, QA_ARMYAW ?? Math.PI),
+        scaleM(QA_ARMS ?? 0.50),
         translateM(0, -1.38, 0),
       )
     })()
@@ -396,15 +424,15 @@ class Game {
       if (!invView) return null
       return compose(
         invView,
-        translateM(0.10, -0.265, -0.46),
-        rotYTranslate(0, 0, 0, Math.PI / 2 - 0.06),
-        rotZ(0.10),
-        scaleM(0.85),
+        translateM(0.165, -0.190, -0.44),
+        rotYTranslate(0, 0, 0, Math.PI / 2 - 0.16),
+        rotZ(-0.14),
+        scaleM(0.8),
       )
     })()
     const viewProjFinal = mat4.multiply(mat4.create(), persp, view)
-    // projeção da sombra da lanterna
-    const spotPos = [camPos[0], camPos[1] - 0.14, camPos[2]]
+    // projeção da sombra da lanterna — nasce na PONTA da lanterna em punho
+    const spotPos = flashModel ? transformVec(flashModel, [0.15, 0.02, 0]) : [camPos[0], camPos[1] - 0.14, camPos[2]]
     const lookDir = this.state === 'title' ? [Math.sin(0.7), -0.06, -Math.cos(0.7)] : this.player.lookDir()
     const spotView = mat4.lookAt(spotPos, [spotPos[0] + lookDir[0], spotPos[1] + lookDir[1], spotPos[2] + lookDir[2]], [0, 1, 0])
     const spotProj = mat4.perspective((95 * Math.PI) / 180, 1.0, 0.25, 34)
@@ -414,7 +442,7 @@ class Game {
     const points = []
     if (built) {
       points.push({ pos: [built.exit.x + CELL / 2, 2.1, built.exit.z + CELL / 2], color: lvl.exitLight.color, radius: lvl.exitLight.radius })
-      if (built.keyPos && !this.puzzle?.keyTaken) points.push({ pos: [built.keyPos.x, built.keyPos.y + 0.3, built.keyPos.z], color: lvl.keyLight.color, radius: lvl.keyLight.radius })
+      if (built.keyPos && !this.puzzle?.keyTaken) points.push({ pos: [built.keyPos.x, built.keyPos.y - 0.05, built.keyPos.z], color: lvl.keyLight.color, radius: lvl.keyLight.radius })
       points.push({ pos: this.violetPos, color: lvl.violetLight.color, radius: lvl.violetLight.radius })
     }
     // dying flicker
@@ -444,6 +472,7 @@ class Game {
       doorMatrix: doorModel,
       keyMatrix: keyModel,
       keyVisible: !!built && !!built.keyPos && !this.puzzle?.keyTaken,
+      keyHot: this._keyTargeted ? 1.0 + 0.35 * Math.sin(time * 7) : 0.6,
       armMatrix: armModel,
       flashMatrix: flashModel,
       grain: lvl.grain,
