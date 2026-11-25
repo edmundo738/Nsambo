@@ -25,6 +25,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npx vite build --config vite.config.build.js
+          Copy-Item ../launcher/* dist/
 
       - name: Prepara wrapper desktop
         working-directory: desktop

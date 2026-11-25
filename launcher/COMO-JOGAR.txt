@@ -1,0 +1,28 @@
+THE BACKROOMS — BETA FECHADA (Lobby 0: "O Amarelo Infinito")
+=============================================================
+
+FORMA CERTA DE JOGAR (Windows):
+  1. Extrai a pasta inteira para onde quiseres (ex.: Documentos\Backrooms)
+  2. Duplo-clique em JOGAR.bat   <-- É ISTO QUE ABRES
+  3. Abre-se o browser sozinho em http://127.0.0.1:8321/backrooms.html
+  4. Clica no ecrã para prender o rato. Esc liberta-o.
+
+NÃO abras backrooms.html diretamente com duplo-clique:
+  - o Chrome/Edge bloqueiam o jogo por segurança (módulos ES em file://);
+  - o JOGAR.bat resolve isso com um servidor local só teu, sem internet.
+
+SE O WINDOWS SMARTSCREEN AVISAR:
+  - "Mais informações" -> "Executar assim mesmo". É um script local assinado
+    por ninguém (beta), mas só serve os ficheiros desta pasta.
+
+CONTROLOS
+  WASD andar · SHIFT correr · ESPAÇO saltar · E interagir
+  F lanterna · M mini-mapa · Esc libertar rato
+
+OBJETIVO
+  Encontra a chave. Abre a porta SAÍDA. Sobrevive ao amarelo.
+
+A ENCONTRAR BUGS?
+  Abre uma Issue: https://github.com/edmundo738/Nsambo/issues
+  Manda: o que aconteceu, a seed, o que estavas a fazer, um print.
+  Obrigado por testar — é a primeira beta e cada bug report conta.
