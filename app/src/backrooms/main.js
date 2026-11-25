@@ -11,6 +11,8 @@ import { VM, armsLocal, FLASH_TIP, viewmodelProj } from './game/viewmodel.js'
 import { toggleFlashlight, lightIsOn } from './game/flashlight.js'
 import { pickVioletPos } from './game/violet.js'
 import { poseWeights, blendPoses, pulse, rightHandIndices, rightHandCentroid, leftHandIndices, leftHandCentroid, leftArmIndices, applyHold, clamp01 } from './game/arms-poses.mjs'
+import { createLocoState, locoUpdate, computeSwingWeights, applyLocoSwing, forearmIndices, centroidOf, STRIDE, SWING } from './game/arms-anim.mjs'
+import { recomputeNormals, recomputeTangents } from './engine/meshmix.mjs'
 import { mat4 } from './engine/math.js'
 import { LEVEL1 } from './levels/level1.js'
 import { loadGLB } from './engine/gltf.js'
@@ -25,6 +27,9 @@ const OST_ON = params.has('ost')   // OST fora do gameplay por defeito (14 s em 
 const QA_YAW = params.has('yaw') ? Number(params.get('yaw')) : null
 const QA_PITCH = params.has('pitch') ? Number(params.get('pitch')) : null
 const QA_AT = params.has('at') ? params.get('at').split(',').map(Number) : null
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v)
+const QA_VMARMS = params.get('vma')          // QA: força braços em idle|walk|run
+const QA_VMPHASE = (() => { const v = parseFloat(params.get('vmphase') ?? ''); return Number.isFinite(v) ? v : null })()
 const QA_TOPDOWN = params.has('topdown')
 const QA_NOFLASH = params.has('noflash')
 const QA_ARMSONLY = params.has('armsonly')
@@ -147,8 +152,19 @@ class Game {
       this._rHandIdx = rightHandIndices(relaxA.positions)
       this._lHandIdx = leftHandIndices(relaxA.positions)
       this._lArmIdx = leftArmIndices(relaxA.positions)
+      this._foreR = forearmIndices(relaxA.positions, 1)
+      this._foreL = forearmIndices(relaxA.positions, -1)
+      this._armIndices = arms.indices
+      this._armUvs = arms.uvs
+      this._armNormals = new Float32Array(relaxA.positions.length)
+      this._armTangents = new Float32Array((relaxA.positions.length / 3) * 4)
+      this._swingW = { w: new Float32Array(relaxA.positions.length / 3), side: new Float32Array(relaxA.positions.length / 3) }   // reutilizado por frame
+      this._loco = createLocoState()
+      this._lastRenderT = null
       this._armBlend = new Float32Array(arms.positions.length)
       this._armBlend.set(relaxA.positions)
+      recomputeNormals(this._armBlend, this._armIndices, this._armNormals)
+      recomputeTangents(this._armBlend, this._armNormals, this._armUvs, this._armIndices, this._armTangents)
       await this.renderer.setDynamicModel('arms', arms)
       await this.renderer.setModel('key', key)
       await this.renderer.setModel('flash', flash)
@@ -219,6 +235,8 @@ class Game {
     this.startTime = performance.now()
     this.playTime = 0
     this._keyDiscovered = false; this._reachT = null; this._keyTargeted = false; this._keyT = QA_HASKEY ? -10 : null
+    this._keyAnimT = null; this._locoDist = 0; this._lastRenderT = null
+    if (this._loco) { this._loco.state = 'idle'; this._loco.phase = 0; this._loco.amp = 0; this._loco.ampTarget = 0 }
     this._prevKeys = new Set()
     this.hud.explored.clear()
     if (QA_YAW !== null) this.player.yaw = QA_YAW
@@ -332,6 +350,7 @@ class Game {
     const cam = player.update(dt, this.input)
     // passos
     this._stepAcc += cam.stepped
+    this._locoDist = cam.stepped ?? 0
     const speedTarget = cam.sprinting ? 3.0 : cam.moving ? 1.5 : 0
     this._armSpeed += (speedTarget - this._armSpeed) * (1 - Math.exp(-6 * dt))
     if (this._prevYaw !== null) {
@@ -415,12 +434,8 @@ class Game {
     this.hud.prompt(prompt)
     if (pressed('KeyE')) {
       if (target === 'key') {
-        this.puzzle = pickKey(this.puzzle)
-        this._reachT = time; this._keyT = time
-        this.audio.keyPickup()
-        this.hud.toast('CHAVE ADQUIRIDA — ELA PESA DEMAIS', 3.2)
-        this.hud.setKey(true)
-        this.hud.setObjective('A CHAVE CANTA. ENCONTRE A SAÍDA.')
+        // o GESTO começa já; a posse só é confirmada no contacto (ver bloco abaixo)
+        if (this._keyAnimT == null) { this._reachT = time; this._keyAnimT = time }
       } else if (target === 'door') {
         const { state, result } = tryExitDoor(this.puzzle)
         this._noisePulse = Math.max(this._noisePulse, 0.85)
@@ -436,6 +451,17 @@ class Game {
           this.hud.toast('TRANCADA — FALTA ALGO', 2.4)
         }
       }
+    }
+    // sequência da chave: aproximação → contacto (≈0.18 s) → pega → posse.
+    // A chave só passa para a palma quando os dedos fecham — não no momento do press.
+    if (this._keyAnimT != null && !this.puzzle.keyTaken && time - this._keyAnimT >= 0.18) {
+      this.puzzle = pickKey(this.puzzle)
+      this._keyT = time
+      this.audio.keyPickup()
+      this.hud.toast('CHAVE ADQUIRIDA — ELA PESA DEMAIS', 3.2)
+      this.hud.setKey(true)
+      this.hud.setObjective('A CHAVE CANTA. ENCONTRE A SAÍDA.')
+      this._keyAnimT = null
     }
     this._prevKeys.clear(); for (const k of this.input.keys) this._prevKeys.add(k)   // sem alocar por frame
     // animação da porta (desliza para dentro da parede)
@@ -553,20 +579,39 @@ class Game {
     // braços do jogador (viewmodel): presos à câmara, fora do mundo
     // — blend de poses por estado (respiração → alerta → apanhar/empurrar)
     const reach = this._reachT != null ? Math.sin(Math.PI * Math.min(1, (time - this._reachT) / 0.42)) : 0
+    const dtR = this._lastRenderT == null ? 1 / 60 : Math.min(0.05, Math.max(0.001, time - this._lastRenderT))
+    this._lastRenderT = time
     if (this.armPoses && this.state === 'playing') {
       const grabPulse = this._reachT != null ? pulse(time - this._reachT, 0.6, 0.18) : 0
       const pushPulse = this._pushT != null ? pulse(time - this._pushT, 0.8, 0.28) : 0
       const breath = 0.5 + 0.5 * Math.sin(time * 1.35)
+      // FSM idle|walk|run com histerese — a fase avança por DISTÂNCIA real (cam.stepped), não pelo relógio
+      if (QA_VMARMS) {
+        this._loco.state = QA_VMARMS === 'run' ? 'run' : QA_VMARMS === 'walk' ? 'walk' : 'idle'
+        this._loco.amp = QA_VMARMS === 'idle' ? 0 : SWING[this._loco.state]
+        if (QA_VMPHASE != null) this._loco.phase = QA_VMPHASE
+      }
+      const loco = locoUpdate(this._loco, this._locoDist ?? 0, QA_VMARMS ? (this._loco.state === 'run' ? 3.0 : this._loco.state === 'walk' ? 1.5 : 0) : this._armSpeed, dtR)
       const w = poseWeights({ speed: this._armSpeed, breath, grab: grabPulse, push: pushPulse })
       blendPoses(this._armBlend, this.armPoses, w)
       const hold = this.puzzle?.hasKey ? clamp01((time - (this._keyT ?? time)) / 0.4) : 0
-      if (hold > 0) applyHold(this._armBlend, this._lArmIdx, this.armPoses.grabL, hold * 0.85)
-      this.renderer.updateDynamic('arms', this._armBlend)
+      if (hold > 0) applyHold(this._armBlend, this._lArmIdx, this.armPoses.grabL, hold * 0.9)
+      // ciclo de locomoção: péndulo frente/trás + balanço lateral + bob — L/R em contrafase
+      applyLocoSwing(this._armBlend, computeSwingWeights(this._armBlend, this._swingW.w, this._swingW.side), loco.phase, loco.amp)
+      // VM-006: posições mudaram → normais/tangentes recomputadas no CPU e subidas juntas
+      recomputeNormals(this._armBlend, this._armIndices, this._armNormals)
+      recomputeTangents(this._armBlend, this._armNormals, this._armUvs, this._armIndices, this._armTangents)
+      this.renderer.updateDynamic('arms', this._armBlend, this._armNormals, this._armTangents)
+      const viewMat = compose(translateM(this._swayX, this._swayY, 0), armsLocal(reach))
       const handRig = rightHandCentroid(this._armBlend, this._rHandIdx)
-      this._handView = transformVec(compose(translateM(this._swayX, this._swayY, 0), armsLocal(reach)), handRig)
+      const foreRigR = centroidOf(this._armBlend, this._foreR, [handRig[0], handRig[1] + 0.19, handRig[2] + 0.04])
+      this._handView = transformVec(viewMat, handRig)
+      this._foreViewR = transformVec(viewMat, foreRigR)
       if (this._lHandIdx.length) {
         const handRigL = leftHandCentroid(this._armBlend, this._lHandIdx)
-        this._handViewL = transformVec(compose(translateM(this._swayX, this._swayY, 0), armsLocal(reach)), handRigL)
+        const foreRigL = centroidOf(this._armBlend, this._foreL, [handRigL[0], handRigL[1] + 0.19, handRigL[2] + 0.04])
+        this._handViewL = transformVec(viewMat, handRigL)
+        this._foreViewL = transformVec(viewMat, foreRigL)
       }
     }
     const stalkerMatrix = (() => {
@@ -575,7 +620,7 @@ class Game {
       const m = st.matrix()
       return compose(translateM(m.x, m.y, m.z), rotYTranslate(0, 0, 0, m.yaw), scaleM(1))
     })()
-    if (this.stalker && this.stalker.present) this.renderer.updateDynamic('stalker', this.stalker.positions)
+    if (this.stalker && this.stalker.present) this.renderer.updateDynamic('stalker', this.stalker.positions, this.stalker.normals, this.stalker.tangents)
     const armModel = (() => {
       if (!this.modelsReady) return null
       if (QA_ARMSONLY) {
@@ -601,15 +646,19 @@ class Game {
       const invView = mat4.invert(view)
       if (!invView) return null
       const hv = this._handView ?? [0.273, -0.166, -0.361]
-      return compose(invView, translateM(hv[0] - 0.008, hv[1] - 0.005, hv[2] - 0.03), rotYTranslate(0, 0, 0, -Math.PI / 2 - 0.06), rotX(-0.14), scaleM(0.72))
+      const fa = this._foreViewR ? [hv[0] - this._foreViewR[0], hv[1] - this._foreViewR[1], hv[2] - this._foreViewR[2]] : null
+      const gripYaw = fa ? clamp(Math.atan2(fa[0], -fa[2]), -0.4, 0.4) : 0
+      return compose(invView, translateM(hv[0] - 0.008, hv[1] - 0.005, hv[2] - 0.03), rotYTranslate(0, 0, 0, -Math.PI / 2 - 0.06 + gripYaw * 0.55), rotX(-0.14), scaleM(0.72))
     })()
     const heldKeyModel = (() => {
       if (this.state !== 'playing' || !this.modelsReady || !this.puzzle?.hasKey) return null
       const invView = mat4.invert(view)
       if (!invView) return null
       const hv = this._handViewL ?? [-0.273, -0.166, -0.361]
+      const fa = this._foreViewL ? [hv[0] - this._foreViewL[0], hv[1] - this._foreViewL[1], hv[2] - this._foreViewL[2]] : null
+      const gripYaw = fa ? clamp(Math.atan2(fa[0], -fa[2]), -0.45, 0.45) : 0
       // chave deitada na palma, dentes para a frente, anel para o punho
-      return compose(invView, translateM(hv[0] + 0.005, hv[1] + 0.03, hv[2] + 0.012), rotYTranslate(0, 0, 0, 0.5), rotZ(Math.PI / 2 - 0.35), scaleM(1.5))
+      return compose(invView, translateM(hv[0] + 0.005, hv[1] + 0.03, hv[2] + 0.012), rotYTranslate(0, 0, 0, 0.5 + gripYaw * 0.5), rotZ(Math.PI / 2 - 0.35), scaleM(1.5))
     })()
     const viewProjFinal = mat4.multiply(mat4.create(), persp, view)
     // projeção da sombra da lanterna — nasce na PONTA da lanterna em punho

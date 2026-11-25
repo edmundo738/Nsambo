@@ -138,12 +138,16 @@ export class Renderer {
     this['tex_' + name] = await this._uploadGlbTexture(glb.textureBlob)
   }
 
-  updateDynamic(name, positions) {
-    const buf = this['dynpos_' + name]
-    if (!buf) return
+  // normais/tangentes recomputadas no CPU têm de subir junto com as posições —
+  // caso contrário a iluminação continua a ver a pose original (VM-006)
+  updateDynamic(name, positions, normals, tangents) {
     const gl = this.gl
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf)
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, positions)
+    const buf = this['dynpos_' + name]
+    if (buf) { gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, positions) }
+    const nb = this['dynnor_' + name]
+    if (nb && normals) { gl.bindBuffer(gl.ARRAY_BUFFER, nb); gl.bufferSubData(gl.ARRAY_BUFFER, 0, normals) }
+    const tb = this['dyntan_' + name]
+    if (tb && tangents) { gl.bindBuffer(gl.ARRAY_BUFFER, tb); gl.bufferSubData(gl.ARRAY_BUFFER, 0, tangents) }
     gl.bindBuffer(gl.ARRAY_BUFFER, null)
   }
 
@@ -176,9 +180,14 @@ export class Renderer {
       return b
     }
     const posBuf = mk(m.positions, 0, 3, dynamic)
-    if (dynamic) this['dynpos_' + m.__name] = posBuf
-    mk(m.normals, 1, 3)
-    mk(m.tangents, 2, 4)
+    if (dynamic) {
+      this['dynpos_' + m.__name] = posBuf
+      this['dynnor_' + m.__name] = mk(m.normals, 1, 3, true)
+      if (m.tangents) this['dyntan_' + m.__name] = mk(m.tangents, 2, 4, true)
+    } else {
+      mk(m.normals, 1, 3)
+      mk(m.tangents, 2, 4)
+    }
     mk(m.uvs, 3, 2)
     const idx = gl.createBuffer()
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idx)

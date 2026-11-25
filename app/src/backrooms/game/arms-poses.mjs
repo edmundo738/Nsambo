@@ -19,7 +19,7 @@ export function pulse(t, dur, peakT = 0.30) {
 
 // weights → {relax, guard, grab, push} (soma 1); relax é dividido entre A/B pelo breath
 export function poseWeights({ speed = 0, breath = 0, grab = 0, push = 0 } = {}) {
-  const g = clamp01((speed - 0.6) / 2.4) * 0.55        // 0 parado → 0.55 a correr (nunca total)
+  const g = clamp01((speed - 0.6) / 2.4) * 0.35        // tensão de alerta — a passada real vem do ciclo procedural (arms-anim)
   const action = clamp01(grab) + clamp01(push)
   const grabW = clamp01(grab) / Math.max(1, action) * clamp01(action)
   const pushW = clamp01(push) / Math.max(1, action) * clamp01(action)

@@ -21,7 +21,7 @@ test('poseWeights: parado+sem ações = 100% relax', () => {
 })
 test('poseWeights: a correr pesa para guard mas nunca o substitui', () => {
   const w = poseWeights({ speed: 3.0 })
-  assert.ok(w.guard > 0.4 && w.guard <= 0.55)
+  assert.ok(w.guard > 0.25 && w.guard <= 0.35)   // alerta vincado; o ciclo de corrida é procedural (arms-anim)
   assert.ok(w.relax > 0)
 })
 test('poseWeights: ação exclui guard; grab+push distribuem a si mesmos', () => {

@@ -5,7 +5,7 @@
 // 0.5× e afastava 0.53 m → os cotos entravam no frame. Agora: escala 1, olho do rig na câmara.
 import { mat4 } from '../engine/math.js'
 
-export const VM = { fovDeg: 75, near: 0.02, far: 8, rigEyeY: 1.70 }
+export const VM = { fovDeg: 75, near: 0.02, far: 8, rigEyeY: 1.58 }   // mãos inteiramente visíveis acima do limite inferior
 export const FLASH_TIP = [0.15, 0.02, 0]   // ponta (lente = +X do GLB) em espaço do modelo
 
 const mul = (...ms) => ms.reduce((a, b) => mat4.multiply(mat4.create(), a, b))

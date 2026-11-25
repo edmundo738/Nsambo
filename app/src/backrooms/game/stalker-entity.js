@@ -4,6 +4,7 @@
 import { loadGLB } from '../engine/gltf.js'
 import { StalkerBrain } from './stalker-ai.mjs'
 import { CELL } from '../engine/scene.js'
+import { recomputeNormals, recomputeTangents } from '../engine/meshmix.mjs'
 
 // o GLB (export_yup) fica virado a −Z — a convenção do jogo (yaw=0 → −Z) não precisa de rotação extra
 const MODEL_YAW = 0
@@ -28,6 +29,13 @@ export class StalkerEntity {
     this.brain = brain
     this.positions = new Float32Array(assets.rest.length)
     this.positions.set(assets.rest)
+    this.normals = new Float32Array(assets.rest.length)
+    this.tangents = new Float32Array((assets.rest.length / 3) * 4)
+    const g = assets.glb
+    if (g && g.indices && g.uvs) {
+      recomputeNormals(this.positions, g.indices, this.normals)
+      recomputeTangents(this.positions, this.normals, g.uvs, g.indices, this.tangents)
+    }
     this.walkDist = 0
     this.jawW = 0
     this.sinkT = -1             // ≥0 durante o «desaparecimento»
@@ -105,6 +113,12 @@ export class StalkerEntity {
       const a = (this.jawW * breathe)
       const rest = this.assets.rest, jaw = this.assets.jaw
       for (let i = 0; i < pos.length; i++) pos[i] += (jaw[i] - rest[i]) * a
+    }
+    const g = this.assets.glb
+    if (g && g.indices && g.uvs) {
+      // VM-006: mesma patologia dos braços — normais/tangentes acompanham a deformação
+      recomputeNormals(this.positions, g.indices, this.normals)
+      recomputeTangents(this.positions, this.normals, g.uvs, g.indices, this.tangents)
     }
     return out
   }
