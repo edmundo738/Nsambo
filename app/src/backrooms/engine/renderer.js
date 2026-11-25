@@ -274,6 +274,12 @@ export class Renderer {
         gl.bindVertexArray(this.mesh_flash.vao)
         gl.drawElements(gl.TRIANGLES, this.mesh_flash.indexCount, gl.UNSIGNED_INT, 0)
       }
+      // chave empunhada — mesmo passe viewmodel (FOV largo), mesmo pique de profundidade
+      if (frame.heldKeyMatrix && this.mesh_key) {
+        this._bindMaterial({ ...this.mesh_key, material: 'modelKey', model: frame.heldKeyMatrix })
+        gl.bindVertexArray(this.mesh_key.vao)
+        gl.drawElements(gl.TRIANGLES, this.mesh_key.indexCount, gl.UNSIGNED_INT, 0)
+      }
     }
 
     // ── passe de pós (dither + quantização + grão) ─────────────────

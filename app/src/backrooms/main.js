@@ -10,7 +10,7 @@ import { createPuzzleState, pickKey, tryExitDoor } from './game/puzzle.js'
 import { VM, armsLocal, FLASH_TIP, viewmodelProj } from './game/viewmodel.js'
 import { toggleFlashlight, lightIsOn } from './game/flashlight.js'
 import { pickVioletPos } from './game/violet.js'
-import { poseWeights, blendPoses, pulse, rightHandIndices, rightHandCentroid } from './game/arms-poses.mjs'
+import { poseWeights, blendPoses, pulse, rightHandIndices, rightHandCentroid, leftHandIndices, leftHandCentroid, leftArmIndices, applyHold, clamp01 } from './game/arms-poses.mjs'
 import { mat4 } from './engine/math.js'
 import { LEVEL1 } from './levels/level1.js'
 import { loadGLB } from './engine/gltf.js'
@@ -36,6 +36,7 @@ const QA_ARMY = params.has('army') ? Number(params.get('army')) : null
 const QA_ARMZ = params.has('armz') ? Number(params.get('armz')) : null
 const QA_ARMS = params.has('arms') ? Number(params.get('arms')) : null
 const QA_ARMX = params.has('armx') ? Number(params.get('armx')) : null
+const QA_HASKEY = params.has('haskey')
 
 const EYE_FALLBACK = 1.62
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
@@ -121,21 +122,24 @@ class Game {
   async _loadModels() {
     const base = import.meta.env.BASE_URL + 'models/'
     try {
-      const [arms, relaxA, relaxB, guard, grab, push, key, flash] = await Promise.all([
+      const [arms, relaxA, relaxB, guard, grab, push, grabL, key, flash] = await Promise.all([
         loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 0 }),
         loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 0 }),
         loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 2.0 }),
         loadGLB(base + 'arms_rig.glb', { anim: 'knife_idle', animTime: 1.0 }),
         loadGLB(base + 'arms_rig.glb', { anim: 'grab.R', animTime: 0.36 }),
         loadGLB(base + 'arms_rig.glb', { anim: 'push.R', animTime: 0.32 }),
+        loadGLB(base + 'arms_rig.glb', { anim: 'grab.L', animTime: 0.36 }),
         loadGLB(base + 'psx_house_key.glb'),
         loadGLB(base + 'psx_flashlight.glb'),
       ])
       this.armPoses = {
         relaxA: relaxA.positions, relaxB: relaxB.positions, guard: guard.positions,
-        grab: grab.positions, push: push.positions,
+        grab: grab.positions, push: push.positions, grabL: grabL.positions,
       }
       this._rHandIdx = rightHandIndices(relaxA.positions)
+      this._lHandIdx = leftHandIndices(relaxA.positions)
+      this._lArmIdx = leftArmIndices(relaxA.positions)
       this._armBlend = new Float32Array(arms.positions.length)
       this._armBlend.set(relaxA.positions)
       await this.renderer.setDynamicModel('arms', arms)
@@ -163,6 +167,7 @@ class Game {
     const ex = this.built.exit, sp = lvl.spawn
     this.violetPos = pickVioletPos(lvl, CELL)   // sempre numa célula aberta
     this.puzzle = createPuzzleState()
+    if (QA_HASKEY) { this.puzzle = { ...this.puzzle, hasKey: true, keyTaken: true } }
     this.doorProgress = 0
     this.battery = 1
     this.flashlightOn = !QA_NOFLASH
@@ -172,7 +177,7 @@ class Game {
     this._stepAcc = 0
     this.startTime = performance.now()
     this.playTime = 0
-    this._keyDiscovered = false; this._reachT = null; this._keyTargeted = false
+    this._keyDiscovered = false; this._reachT = null; this._keyTargeted = false; this._keyT = QA_HASKEY ? -10 : null
     this._prevKeys = new Set()
     this.hud.explored.clear()
     if (QA_YAW !== null) this.player.yaw = QA_YAW
@@ -321,7 +326,7 @@ class Game {
     if (pressed('KeyE')) {
       if (target === 'key') {
         this.puzzle = pickKey(this.puzzle)
-        this._reachT = time
+        this._reachT = time; this._keyT = time
         this.audio.keyPickup()
         this.hud.toast('CHAVE ADQUIRIDA — ELA PESA DEMAIS', 3.2)
         this.hud.setKey(true)
@@ -437,9 +442,15 @@ class Game {
       const breath = 0.5 + 0.5 * Math.sin(time * 1.35)
       const w = poseWeights({ speed: this._armSpeed, breath, grab: grabPulse, push: pushPulse })
       blendPoses(this._armBlend, this.armPoses, w)
+      const hold = this.puzzle?.hasKey ? clamp01((time - (this._keyT ?? time)) / 0.4) : 0
+      if (hold > 0) applyHold(this._armBlend, this._lArmIdx, this.armPoses.grabL, hold * 0.85)
       this.renderer.updateDynamic('arms', this._armBlend)
       const handRig = rightHandCentroid(this._armBlend, this._rHandIdx)
       this._handView = transformVec(compose(translateM(this._swayX, this._swayY, 0), armsLocal(reach)), handRig)
+      if (this._lHandIdx.length) {
+        const handRigL = leftHandCentroid(this._armBlend, this._lHandIdx)
+        this._handViewL = transformVec(compose(translateM(this._swayX, this._swayY, 0), armsLocal(reach)), handRigL)
+      }
     }
     const armModel = (() => {
       if (!this.modelsReady) return null
@@ -467,6 +478,14 @@ class Game {
       if (!invView) return null
       const hv = this._handView ?? [0.273, -0.166, -0.361]
       return compose(invView, translateM(hv[0] - 0.008, hv[1] - 0.005, hv[2] - 0.03), rotYTranslate(0, 0, 0, -Math.PI / 2 - 0.06), rotX(-0.14), scaleM(0.72))
+    })()
+    const heldKeyModel = (() => {
+      if (this.state !== 'playing' || !this.modelsReady || !this.puzzle?.hasKey) return null
+      const invView = mat4.invert(view)
+      if (!invView) return null
+      const hv = this._handViewL ?? [-0.273, -0.166, -0.361]
+      // chave deitada na palma, dentes para a frente, anel para o punho
+      return compose(invView, translateM(hv[0] + 0.005, hv[1] + 0.03, hv[2] + 0.012), rotYTranslate(0, 0, 0, 0.5), rotZ(Math.PI / 2 - 0.35), scaleM(1.5))
     })()
     const viewProjFinal = mat4.multiply(mat4.create(), persp, view)
     // projeção da sombra da lanterna — nasce na PONTA da lanterna em punho
@@ -511,6 +530,7 @@ class Game {
       doorMatrix: doorModel,
       keyMatrix: keyModel,
       keyVisible: !!built && !!built.keyPos && !this.puzzle?.keyTaken,
+      heldKeyMatrix: heldKeyModel,
       keyHot: this._keyTargeted ? 1.0 + 0.35 * Math.sin(time * 7) : 0.6,
       armMatrix: armModel,
       flashMatrix: flashModel,

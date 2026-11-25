@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { poseWeights, blendPoses, pulse, clamp01, rightHandIndices, rightHandCentroid } from '../src/backrooms/game/arms-poses.mjs'
+import { poseWeights, blendPoses, pulse, clamp01, rightHandIndices, rightHandCentroid, leftHandIndices, leftHandCentroid, leftArmIndices, applyHold } from '../src/backrooms/game/arms-poses.mjs'
 
 test('clamp01: extremos e fora de escala', () => {
   assert.equal(clamp01(-1), 0); assert.equal(clamp01(0.5), 0.5); assert.equal(clamp01(2), 1)
@@ -66,4 +66,29 @@ test('rightHandIndices + centroid: encontra a mão direita no bake do rig', asyn
 test('rightHandCentroid: fallback seguro sem índices', () => {
   const c = rightHandCentroid(new Float32Array([0, 0, 0]), new Uint32Array(0))
   assert.deepEqual(c, [-0.268, 1.543, 0.357])
+})
+
+test('leftArmIndices: metade raw x>0 (braço esquerdo inteiro)', () => {
+  const pos = new Float32Array([0.5, 0, 0,  -0.5, 0, 0,  0.1, 0, 0,  -0.1, 0, 0])
+  const idx = leftArmIndices(pos)
+  assert.deepEqual([...idx], [0, 2])
+})
+
+test('leftHandIndices: espelho da direita (raw x>0)', () => {
+  // espelho dos dados sintéticos: direita raw x<0, esquerda raw x>0
+  const pos = new Float32Array([0.3, 1.6, 0.5,  -0.3, 1.6, 0.5,  0.3, 0.2, -0.1])
+  const li = leftHandIndices(pos, { rigEyeY: 1.70 })
+  assert.deepEqual([...li], [0])
+})
+
+test('applyHold: mistura parcial em direção à pose alvo', () => {
+  const out = new Float32Array([0, 0, 0,  10, 10, 10])
+  const target = new Float32Array([10, 0, 0,  10, 0, 10])
+  applyHold(out, new Uint32Array([0, 1]), target, 0.5)
+  assert.deepEqual([...out], [5, 0, 0,  10, 5, 10])
+  applyHold(out, new Uint32Array([0, 1]), target, 2)   // t clamped a 1
+  assert.deepEqual([...out], [10, 0, 0,  10, 0, 10])
+  const before = new Float32Array([1, 2, 3])
+  applyHold(before, new Uint32Array([0]), target, 0)   // no-op
+  assert.deepEqual([...before], [1, 2, 3])
 })

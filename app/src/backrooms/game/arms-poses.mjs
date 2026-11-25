@@ -42,22 +42,46 @@ export function blendPoses(out, poses, w) {
   return out
 }
 
-// índices dos vértices da mão direita (vista: x > 0.08, z < −0.2), calculados uma vez
-// a partir de qualquer bake do rig (a topologia não muda entre poses/clipes)
-export function rightHandIndices(positions, { rigEyeY = 1.70 } = {}) {
+// índices dos vértices da mão (vista: x > 0.08 direita / x < −0.08 esquerda, z < −0.2),
+// calculados uma vez a partir de qualquer bake do rig (a topologia não muda entre poses/clipes)
+function handIndices(positions, sign, { rigEyeY = 1.70 } = {}) {
   const idx = []
   for (let v = 0; v * 3 + 2 < positions.length; v++) {
     const x = -positions[v * 3]
     const y = positions[v * 3 + 1] - rigEyeY
     const z = -positions[v * 3 + 2]
-    if (x > 0.08 && z < -0.2) idx.push(v)
+    if (x * sign > 0.08 && z < -0.2) idx.push(v)
   }
   return new Uint32Array(idx)
 }
+export function rightHandIndices(positions, opts) { return handIndices(positions, 1, opts) }
+export function leftHandIndices(positions, opts) { return handIndices(positions, -1, opts) }
 
-// centróide (espaço do rig) dos vértices da mão direita — onde a lanterna se senta
-export function rightHandCentroid(positions, indices) {
-  if (!indices || indices.length === 0) return [-0.268, 1.543, 0.357] // fallback: relax@medido (rig)
+// índices de METADE do mesh (braço inteiro, raw x>0 = esquerdo) — o mesh são só
+// dois braços espelhados (379 + 379 verts, sem costura); usado pela garra da chave
+export function leftArmIndices(positions) {
+  const idx = []
+  for (let v = 0; v * 3 < positions.length; v++) if (positions[v * 3] > 0) idx.push(v)
+  return new Uint32Array(idx)
+}
+
+// mistura PARCIAL da pose alvo (grab.L) nos vértices dados — mão a fechar sobre a chave.
+// t=1 seria o aperto total do clipe; 0.8–0.9 segura sem esconder a chave.
+export function applyHold(out, indices, holdPose, t) {
+  const k = clamp01(t)
+  if (k <= 0) return out
+  for (let i = 0; i < indices.length; i++) {
+    const v = indices[i] * 3
+    out[v] += (holdPose[v] - out[v]) * k
+    out[v + 1] += (holdPose[v + 1] - out[v + 1]) * k
+    out[v + 2] += (holdPose[v + 2] - out[v + 2]) * k
+  }
+  return out
+}
+
+// centróide (espaço do rig) dos vértices da mão — onde a lanterna/chave se sentam
+export function handCentroid(positions, indices, fallback) {
+  if (!indices || indices.length === 0) return fallback
   const c = [0, 0, 0]
   for (let i = 0; i < indices.length; i++) {
     const v = indices[i] * 3
@@ -65,3 +89,5 @@ export function rightHandCentroid(positions, indices) {
   }
   return [c[0] / indices.length, c[1] / indices.length, c[2] / indices.length]
 }
+export function rightHandCentroid(positions, indices) { return handCentroid(positions, indices, [-0.268, 1.543, 0.357]) }
+export function leftHandCentroid(positions, indices) { return handCentroid(positions, indices, [0.268, 1.543, 0.357]) }
