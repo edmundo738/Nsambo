@@ -2,6 +2,9 @@ name: THE BACKROOMS — Windows beta build
 
 on:
   workflow_dispatch:
+  push:
+    branches: [arena/caa2461b-nsambo]
+    paths: ['.github/workflows/backrooms-beta-windows.yml', 'desktop/**', 'app/**', 'assets/**']
 
 permissions:
   contents: write
