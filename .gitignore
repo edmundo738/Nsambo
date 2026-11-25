@@ -33,3 +33,6 @@ tools/.venv-*/
 # Desktop wrapper — artefactos de empacotamento
 desktop/game/
 desktop/release/
+# Blender headless (tools/setup-blender.sh) — binários locais, nunca commitados
+app/tools/.venv-*/
+app/tools/.blender-libs/
