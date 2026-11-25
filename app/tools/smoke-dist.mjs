@@ -10,7 +10,7 @@ await inflate(join(pkgRoot, 'bin', 'al2023.tar.br'))
 await inflate(join(pkgRoot, 'bin', 'fonts.tar.br'))
 const libPath = join(tmpdir(), 'al2023', 'lib')
 
-const distUrl = pathToFileURL('/home/user/Nsambo/app/dist/backrooms.html').href
+const distUrl = pathToFileURL(process.argv[2] ?? '/home/user/Nsambo/app/dist/backrooms.html').href
 const url = distUrl + '?autostart=1&seed=1337&noflash=1'
 
 const executablePath = await chromium.executablePath()
