@@ -45,7 +45,7 @@ export class Renderer {
       'uViewProj', 'uModel', 'uCameraPos',
       'tAlbedo', 'tNormal', 'tRough', 'tAO', 'tHeight', 'tShadowMap',
       'uUntextured', 'uBaseColor', 'uMetallic', 'uRoughness', 'uEmissiveColor', 'uEmissive',
-      'uPomScale', 'uNormalFlip', 'uHemiSky', 'uHemiGround', 'uHemiIntensity',
+      'uPomScale', 'uNormalFlip', 'uAlbedoTint', 'uHemiSky', 'uHemiGround', 'uHemiIntensity',
       'uPointCount', 'uPointPos', 'uPointColor', 'uPointRadius',
       'uSpotOn', 'uSpotPos', 'uSpotDir', 'uSpotColor', 'uSpotIntensity', 'uSpotCosInner', 'uSpotCosOuter', 'uLightMatrix',
       'uFogColor', 'uFogDensity',
@@ -120,7 +120,29 @@ export class Renderer {
     const gl = this.gl
     this.meshes = built.meshes.map(m => this._upload(m))
     this._uploadDynamic('door', built.doorMesh)
-    this._uploadDynamic('key', built.keyMesh)
+  }
+
+  // GLB carregado pelo jogo → malha dinâmica + textura própria (flipY=false)
+  async setModel(name, glb) {
+    const gl = this.gl
+    this['mesh_' + name] = this._upload(glb)
+    this['tex_' + name] = await this._uploadGlbTexture(glb.textureBlob)
+  }
+
+  async _uploadGlbTexture(blob) {
+    if (!blob) return this.textures?.sign ?? null
+    const bmp = await createImageBitmap(blob)
+    const gl = this.gl
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+    const tex = gl.createTexture()
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bmp)
+    gl.generateMipmap(gl.TEXTURE_2D)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
+    return tex
   }
 
   _upload(m) {
@@ -155,7 +177,7 @@ export class Renderer {
     const gl = this.gl
     const dynMeshes = [
       frame.doorMatrix ? { ...this.mesh_door, model: frame.doorMatrix } : { ...this.mesh_door, model: IDENTITY },
-      ...(frame.keyVisible ? [{ ...this.mesh_key, model: frame.keyMatrix }] : []),
+      ...(frame.keyVisible && this.mesh_key ? [{ ...this.mesh_key, model: frame.keyMatrix }] : []),
     ]
     const all = [...this.meshes.map(m => ({ ...m, model: IDENTITY })), ...dynMeshes]
 
@@ -215,6 +237,19 @@ export class Renderer {
       gl.drawElements(gl.TRIANGLES, m.indexCount, gl.UNSIGNED_INT, 0)
     }
 
+    // ── braços em 1ª pessoa (viewmodel): sempre visíveis ────────────
+    if (frame.armMatrix && this.mesh_arms) {
+      gl.clear(gl.DEPTH_BUFFER_BIT)
+      this._bindMaterial({ ...this.mesh_arms, material: 'modelArms', model: frame.armMatrix })
+      gl.bindVertexArray(this.mesh_arms.vao)
+      gl.drawElements(gl.TRIANGLES, this.mesh_arms.indexCount, gl.UNSIGNED_INT, 0)
+      if (frame.flashMatrix && this.mesh_flash) {
+        this._bindMaterial({ ...this.mesh_flash, material: 'modelFlash', model: frame.flashMatrix })
+        gl.bindVertexArray(this.mesh_flash.vao)
+        gl.drawElements(gl.TRIANGLES, this.mesh_flash.indexCount, gl.UNSIGNED_INT, 0)
+      }
+    }
+
     // ── passe de pós (dither + quantização + grão) ─────────────────
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, this.canvas.width, this.canvas.height)
@@ -242,6 +277,7 @@ export class Renderer {
     gl.uniform3f(u.uEmissiveColor, 1, 1, 1)
     gl.uniform1f(u.uPomScale, 0)
     gl.uniform1f(u.uNormalFlip, 1)
+    gl.uniform3f(u.uAlbedoTint, 1, 1, 1)
     gl.uniform1f(u.uMetallic, 0)
     gl.uniform1f(u.uRoughness, 0.85)
     const tex = (unit, t) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); return unit }
@@ -300,6 +336,47 @@ export class Renderer {
         gl.uniform3fv(u.uEmissiveColor, m.untextured.emissive)
         gl.uniform1f(u.uEmissive, 1.35)
         break
+      case 'modelKey': {
+        const t = this.tex_key
+        gl.activeTexture(gl.TEXTURE0); if (t) gl.bindTexture(gl.TEXTURE_2D, t)
+        gl.uniform1i(u.tAlbedo, 0)
+        gl.uniform1i(u.uUntextured, 2)
+        gl.uniform1f(u.uRoughness, 0.42)
+        gl.uniform1f(u.uMetallic, 0.35)
+        gl.uniform3f(u.uEmissiveColor, 1.0, 0.62, 0.16)
+        gl.uniform1f(u.uEmissive, 0.9)
+        break
+      }
+      case 'modelFlash': {
+        const t = this.tex_flash
+        if (t) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t) }
+        gl.uniform1i(u.tAlbedo, 0)
+        gl.uniform1i(u.uUntextured, 2)
+        gl.uniform1f(u.uRoughness, 0.38)
+        gl.uniform1f(u.uMetallic, 0.55)
+        gl.uniform3f(u.uEmissiveColor, 1.0, 0.88, 0.6)
+        gl.uniform1f(u.uEmissive, 0.12)
+        break
+      }
+      case 'modelNote': {
+        const t = this.tex_note
+        if (t) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t) }
+        gl.uniform1i(u.tAlbedo, 0)
+        gl.uniform1i(u.uUntextured, 2)
+        gl.uniform1f(u.uRoughness, 0.85)
+        gl.uniform1f(u.uMetallic, 0.0)
+        break
+      }
+      case 'modelArms': {
+        const t = this.tex_arms
+        if (t) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t) }
+        gl.uniform1i(u.tAlbedo, 0)
+        gl.uniform1i(u.uUntextured, 2)
+        gl.uniform1f(u.uRoughness, 0.78)
+        gl.uniform1f(u.uMetallic, 0.0)
+        gl.uniform3f(u.uAlbedoTint, 0.60, 0.53, 0.48)   // pele domada — o foco da lanterna é agressivo
+        break
+      }
       case 'sign':
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, T.sign)

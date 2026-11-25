@@ -9,6 +9,7 @@ import { Hud } from './game/hud.js'
 import { createPuzzleState, pickKey, tryExitDoor, validatePuzzle } from './game/puzzle.js'
 import { mat4 } from './engine/math.js'
 import { LEVEL1 } from './levels/level1.js'
+import { loadGLB } from './engine/gltf.js'
 
 const $ = (id) => document.getElementById(id)
 const params = new URLSearchParams(window.location.search)
@@ -22,6 +23,9 @@ const QA_PITCH = params.has('pitch') ? Number(params.get('pitch')) : null
 const QA_AT = params.has('at') ? params.get('at').split(',').map(Number) : null
 const QA_TOPDOWN = params.has('topdown')
 const QA_NOFLASH = params.has('noflash')
+const QA_ARMSONLY = params.has('armsonly')
+const QA_ARMTIME = params.has('armtime') ? Number(params.get('armtime')) : null
+const QA_ARMANIM = params.has('armanim') ? params.get('armanim') : null
 
 const EYE_FALLBACK = 1.62
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
@@ -30,6 +34,17 @@ const rotYTranslate = (x, y, z, rot) => {
   const c = Math.cos(rot), s = Math.sin(rot)
   return new Float32Array([c, 0, s, 0, 0, 1, 0, 0, -s, 0, c, 0, x, y, z, 1])
 }
+const rotX = (r) => {
+  const c = Math.cos(r), s = Math.sin(r)
+  return new Float32Array([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1])
+}
+const rotZ = (r) => {
+  const c = Math.cos(r), s = Math.sin(r)
+  return new Float32Array([c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+}
+const scaleM = (s) => new Float32Array([s, 0, 0, 0, 0, s, 0, 0, 0, 0, s, 0, 0, 0, 0, 1])
+const translateM = (x, y, z) => translation(x, y, z)
+const compose = (...ms) => ms.reduce((a, b) => mat4.multiply(mat4.create(), a, b))
 
 class Game {
   constructor(renderer) {
@@ -47,6 +62,7 @@ class Game {
     this.deadToastShown = false
     this.startTime = 0
     this.steps = 0
+    this.ost = null   // trilha do título/ambiente — <audio> (m4a)
     this._stepAcc = 0
     this._revealAcc = 0
     this._mapAcc = 0
@@ -60,8 +76,8 @@ class Game {
     $('btn-restart')?.addEventListener('click', () => this._restart(false))
     $('btn-newseed')?.addEventListener('click', () => this._restart(true))
     $('btn-again')?.addEventListener('click', () => this._restart(true))
-    $('btn-mute')?.addEventListener('click', () => { this.audio.setMuted(!this.audio.muted); $('btn-mute').textContent = this.audio.muted ? 'SOM: DESLIGADO' : 'SOM: LIGADO' })
-    const vol = $('volume'); if (vol) vol.addEventListener('input', () => this.audio.setVolume(Number(vol.value)))
+    $('btn-mute')?.addEventListener('click', () => { this.audio.setMuted(!this.audio.muted); if (this.ost) this.ost.muted = this.audio.muted; $('btn-mute').textContent = this.audio.muted ? 'SOM: DESLIGADO' : 'SOM: LIGADO' })
+    const vol = $('volume'); if (vol) vol.addEventListener('input', () => { const v = Number(vol.value); this.audio.setVolume(v); if (this.ost) this.ost.volume = v * 0.35 })
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === this.canvas
       if (!locked && this.state === 'playing') {
@@ -72,10 +88,28 @@ class Game {
         this.hud.hideScreens()
       }
     })
-    $('btn-quit-to-title')?.addEventListener('click', () => { this.audio.setMuted(false); location.reload() })
+    $('btn-quit-to-title')?.addEventListener('click', () => { this.audio.setMuted(false); this.ost?.pause(); location.reload() })
     // construir o nível já — o título mostra o vazio como fundo vivo
     this.reset(this.seed)
     requestAnimationFrame(this._loop)
+  }
+
+  async _loadModels() {
+    const base = import.meta.env.BASE_URL + 'models/'
+    try {
+      const [arms, key, flash] = await Promise.all([
+        loadGLB(base + 'arms_rig.glb', { anim: QA_ARMANIM ?? 'knife_idle', animTime: QA_ARMTIME ?? 1.0 }),
+        loadGLB(base + 'psx_house_key.glb'),
+        loadGLB(base + 'psx_flashlight.glb'),
+      ])
+      await this.renderer.setModel('arms', arms)
+      await this.renderer.setModel('key', key)
+      await this.renderer.setModel('flash', flash)
+      this.modelsReady = true
+      console.log('modelos carregados — armas:', arms.verts, 'verts /', arms.tris, 'tris · chave:', key.verts, 'verts /', key.tris, 'tris')
+    } catch (e) {
+      console.error('falha ao carregar modelos:', e)
+    }
   }
 
   reset(seed) {
@@ -87,6 +121,7 @@ class Game {
     this.lvl = lvl
     this.built = buildLevelMeshes(lvl)
     this.renderer.setScene(this.built)
+    if (!this._modelsStarted) { this._modelsStarted = true; this._loadModels() }
     this.player = new Player(lvl)
     // luz violeta distante — ponto médio do percurso spawn→saída
     const ex = this.built.exit, sp = lvl.spawn
@@ -127,6 +162,13 @@ class Game {
   _start() {
     this.audio.ensure()
     this.audio.startAmbience()
+    if (!this.ost) {
+      this.ost = new Audio(import.meta.env.BASE_URL + 'ost/over-the-radio.m4a')
+      this.ost.loop = true
+      this.ost.preload = 'auto'
+      this.ost.volume = 0.28
+    }
+    this.ost.play().catch(() => { /* sem gesto ainda — fica em silêncio */ })
     this.reset(this.seed)
     this.state = 'playing'
     this.hud.hideScreens()
@@ -141,6 +183,7 @@ class Game {
 
   _restart(newSeed) {
     this.audio.uiTick()
+    if (this.ost && this.ost.paused) this.ost.play().catch(() => {})
     this.seed = newSeed ? ((Math.random() * 1e9) | 0) : this.seed
     this.reset(this.seed)
     this.state = 'playing'
@@ -306,7 +349,6 @@ class Game {
       const look = p.lookDir()
       view = mat4.lookAt(camPos, [camPos[0] + look[0], camPos[1] + look[1], camPos[2] + look[2]], [0, 1, 0])
     }
-    const viewProj = mat4.multiply(mat4.create(), persp, view)
     // modelo da porta (desliza) e da chave (roda + flutua)
     const built = this.built
     const doorModel = (() => {
@@ -317,8 +359,50 @@ class Game {
     const keyModel = (() => {
       if (!built || !built.keyPos || this.puzzle?.keyTaken) return IDENTITY
       const bob = Math.sin(time * 1.7) * 0.05
-      return rotYTranslate(built.keyPos.x, built.keyPos.y + bob, built.keyPos.z, time * 0.9)
+      // GLB: deitado em XZ, pivot no fundo do aro → levanta-o e põe-no de pé
+      // GLB deitado em XZ (cara para cima) — flutua sobre o pedestal a rodar
+      // de costas para o céu, cara inclinada para o jogador (+Z), flutua sobre o pedestal
+      return compose(
+        translateM(built.keyPos.x, built.keyPos.y + bob + 0.26, built.keyPos.z),
+        rotYTranslate(0, 0, 0, Math.sin(time * 0.7) * 0.5),   // balanço suave, nunca de perfil
+        rotX(1.3),
+        scaleM(8.0),
+      )
     })()
+    // braços do jogador (viewmodel): presos à câmara, fora do mundo
+    const armModel = (() => {
+      if (!this.modelsReady) return null
+      if (QA_ARMSONLY) {
+        // QA: câmara no spawn a olhar para os braços expostos num corredor aberto
+        const sc = this.lvl ? { x: this.lvl.spawn.x * CELL + CELL / 2, z: this.lvl.spawn.z * CELL + CELL / 2 } : { x: 40, z: 40 }
+        camPos = [sc.x, 1.5, sc.z + 2.6]
+        view = mat4.lookAt(camPos, [sc.x, 1.0, sc.z], [0, 1, 0])
+        return compose(translateM(sc.x, 1.15, sc.z), scaleM(0.62), translateM(0, -1.38, 0))
+      }
+      if (this.state !== 'playing') return null
+      const invView = mat4.invert(view)
+      if (!invView) return null
+      return compose(
+        invView,
+        translateM(0.12, -0.29, -0.52),
+        scaleM(0.46),
+        translateM(0, -1.38, 0),
+      )
+    })()
+    // lanterna presa às mãos — eixo do modelo (X, lente para +X) apontado a -Z
+    const flashModel = (() => {
+      if (this.state !== 'playing' || !this.modelsReady) return null
+      const invView = mat4.invert(view)
+      if (!invView) return null
+      return compose(
+        invView,
+        translateM(0.10, -0.265, -0.46),
+        rotYTranslate(0, 0, 0, Math.PI / 2 - 0.06),
+        rotZ(0.10),
+        scaleM(0.85),
+      )
+    })()
+    const viewProjFinal = mat4.multiply(mat4.create(), persp, view)
     // projeção da sombra da lanterna
     const spotPos = [camPos[0], camPos[1] - 0.14, camPos[2]]
     const lookDir = this.state === 'title' ? [Math.sin(0.7), -0.06, -Math.cos(0.7)] : this.player.lookDir()
@@ -337,18 +421,18 @@ class Game {
     const dying = this.battery < 0.18 && this.flashlightOn
     const flicker = dying ? (Math.sin(time * 31) * Math.sin(time * 17.3 + 1.7) > -0.55 ? 1 : 0.22) : 1
     this.renderer.render({
-      viewProj,
+      viewProj: viewProjFinal,
       lightViewProj,
       cameraPos: camPos,
       time,
-      fog: lvl.fog.color,
-      fogDensity: this._qaFog ?? lvl.fog.density,
-      hemiSky: lvl.hemi.sky,
-      hemiGround: lvl.hemi.ground,
-      hemiIntensity: lvl.hemi.intensity,
-      points,
+      fog: QA_ARMSONLY ? [0.02, 0.02, 0.03] : lvl.fog.color,
+      fogDensity: QA_ARMSONLY ? 0.015 : (this._qaFog ?? lvl.fog.density),
+      hemiSky: QA_ARMSONLY ? [1.15, 1.12, 1.1] : lvl.hemi.sky,
+      hemiGround: QA_ARMSONLY ? [0.5, 0.48, 0.45] : lvl.hemi.ground,
+      hemiIntensity: QA_ARMSONLY ? 1.5 : lvl.hemi.intensity,
+      points: QA_ARMSONLY ? [] : points,
       spot: {
-        on: this.flashlightOn && this.battery >= 0,
+        on: QA_ARMSONLY ? false : this.flashlightOn && this.battery >= 0,
         pos: spotPos,
         dir: lookDir,
         color: lvl.spot.color,
@@ -360,6 +444,8 @@ class Game {
       doorMatrix: doorModel,
       keyMatrix: keyModel,
       keyVisible: !!built && !!built.keyPos && !this.puzzle?.keyTaken,
+      armMatrix: armModel,
+      flashMatrix: flashModel,
       grain: lvl.grain,
       vignette: lvl.vignette,
       levels: lvl.levels,

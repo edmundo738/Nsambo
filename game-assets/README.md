@@ -44,9 +44,11 @@ ou assets de jogos com copyright. Isso expõe o repo público e a conta — e eu
 - `textures/` — **direto**: o motor já lê sets PBR com esta convenção (textura/parede/chão/teto/quadros).
 - `decals/` — **direto**: plano com textura, mesmo esquema dos quadros (`painting-*`).
 - `ost/` — **fácil**: Web Audio do motor já faz drones; trigo para um `radio.js`/jukebox é trivial.
-- `objects/` (3D) — **ainda não há loader GLB/OBJ no motor**. Os modelos ficam
-  arquivados aqui até eu adicionar o loader glTF + posicionamento (mesmo padrão das portas/quadros).
-  Até lá, não esperes vê-los no jogo só por estarem aqui.
+- `objects/` (3D) — **loader GLB próprio disponível desde 2026-11-25**
+  (`app/src/backrooms/engine/gltf.js`: accessors, hierarquia TRS, 1 anim LINEAR/STEP,
+  skinning bake na CPU, texturas embebidas). Posicionamento à mão estilo viewmodel/prop
+  (igual aos quadros/porta). Já no jogo: arms viewmodel, PSX House Key (puzzle), PSX Flashlight.
+  Limites de sempre: estáticos ou TRS simples, < 5k tris, ≤ 1024², metros, origem no chão do objeto.
 
 ## Para modelos 3D: requisitos mínimos
 - `.glb` único com materiais embutidos OU `.obj`+`.mtl`+texturas juntos no zip

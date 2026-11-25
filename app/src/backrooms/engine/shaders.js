@@ -56,6 +56,7 @@ uniform vec3 uBaseColor;
 uniform float uMetallic, uRoughness;
 uniform vec3 uEmissiveColor;
 uniform float uEmissive;
+uniform vec3 uAlbedoTint;
 uniform float uPomScale;       // >0 activa parallax oclusion mapping
 uniform float uNormalFlip;
 
@@ -150,7 +151,7 @@ void main() {
     ao = 1.0;
   } else if (uUntextured == 2) {
     // albedo de uma textura, restantes parâmetros planos (quadros, sinal)
-    albedo = texture(tAlbedo, uv).rgb;
+    albedo = texture(tAlbedo, uv).rgb * uAlbedoTint;
     rough = uRoughness;
     metal = uMetallic;
     ao = 1.0;

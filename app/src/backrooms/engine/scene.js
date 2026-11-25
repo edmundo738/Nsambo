@@ -1,6 +1,6 @@
 // NSAMBO ENGINE — scene.js — constrói a geometria do nível a partir da grelha WFC
 // Materiais: 'wall' (papel de parede + POM), 'carpet', 'ceiling', 'panel' (emissivo),
-// 'frame' (dourado), 'wood' (escuro), 'keycard' (ouro emissivo), 'baseboard', 'sign' (SAÍDA)
+// 'frame' (dourado), 'wood' (escuro), 'baseboard', 'sign' (SAÍDA), 'door'
 import { OPEN, WALL, findPath } from './wfc.js'
 
 export const CELL = 3.0
@@ -64,7 +64,7 @@ export function buildLevelMeshes(lvl) {
   const { cells, size, sealedEdges } = lvl
   const B = {
     wall: makeBucket(), carpet: makeBucket(), ceiling: makeBucket(), panel: makeBucket(),
-    frame: makeBucket(), wood: makeBucket(), keycard: makeBucket(), baseboard: makeBucket(),
+    frame: makeBucket(), wood: makeBucket(), baseboard: makeBucket(),
     sign: makeBucket(), paintingEye: makeBucket(), paintingMtn: makeBucket(),
   }
   const pillarCells = new Set(lvl.pillarCells ?? [])
@@ -208,12 +208,6 @@ export function buildLevelMeshes(lvl) {
     addCylinder(Ped, kp.x, kp.z, 0.08, 0.92, 0.15, 8)
     addCylinder(Ped, kp.x, kp.z, 0.92, 0.98, 0.27, 8)
   }
-  // chave: eixo + 2 dentes + anel (ouro)
-  const Key = makeBucket()
-  boxFaces(Key, [-0.14, -0.018, -0.008], [0.09, 0.018, 0.008])
-  boxFaces(Key, [0.045, -0.055, -0.008], [0.085, -0.018, 0.008])
-  boxFaces(Key, [0.005, -0.05, -0.008], [0.035, -0.018, 0.008])
-  addCylinder(Key, -0.19, 0, -0.028, 0.028, 0.055, 10, 1)
 
   // ── quadros nas paredes ─────────────────────────────────────────
   const paintings = []
@@ -277,12 +271,10 @@ export function buildLevelMeshes(lvl) {
   push('paintingMtn', B.paintingMtn)
   push('sign', doorSign, { emissive: true })
   push('door', Door, { untextured: { baseColor: [0.30, 0.18, 0.09], metallic: 0.1, roughness: 0.55 } })
-  push('keycard', Key, { untextured: { baseColor: [1.0, 0.78, 0.25], metallic: 1.0, roughness: 0.25, emissive: [0.55, 0.38, 0.06] } })
 
   return {
     meshes,
     doorMesh: pushDoor(Door),
-    keyMesh: pushDoor(Key),
     spawn: { x: sp.x, y: 1.62, z: sp.z, yaw: lvl.spawn.z * Math.PI * 0 + Math.PI / 4 },
     exit: { x: ex.x, z: ex.z },
     keyPos: kp ? { x: kp.x, y: 1.02, z: kp.z } : null,
