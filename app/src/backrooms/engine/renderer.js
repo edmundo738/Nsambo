@@ -119,7 +119,11 @@ export class Renderer {
   setScene(built) {
     const gl = this.gl
     this.meshes = built.meshes.map((m, i) => ({ ...this._upload(m), phase: (i * 2.399963) % 6.2832 }))
-    this._uploadDynamic('door', built.doorMesh)
+    const dm = built.doorMeshes
+    this._uploadDynamic('doorL', dm.left)
+    this._uploadDynamic('doorR', dm.right)
+    this._uploadDynamic('doorHwL', dm.hwLeft)
+    this._uploadDynamic('doorHwR', dm.hwRight)
   }
 
   // GLB carregado pelo jogo → malha dinâmica + textura própria (flipY=false)
@@ -204,9 +208,13 @@ export class Renderer {
   render(frame) {
     const gl = this.gl
     const dynMeshes = [
-      frame.doorMatrix ? { ...this.mesh_door, model: frame.doorMatrix } : { ...this.mesh_door, model: IDENTITY },
-      ...(frame.keyVisible && this.mesh_key ? [{ ...this.mesh_key, model: frame.keyMatrix, hot: frame.keyHot }] : []),
-    ]
+      // porta dupla — as folhas deslizam para os bolsos na parede (não afundam no chão)
+      this.mesh_doorL ? { ...this.mesh_doorL, model: frame.doorMatrixL ?? IDENTITY, material: 'door' } : null,
+      this.mesh_doorR ? { ...this.mesh_doorR, model: frame.doorMatrixR ?? IDENTITY, material: 'door' } : null,
+      this.mesh_doorHwL ? { ...this.mesh_doorHwL, model: frame.doorMatrixL ?? IDENTITY, material: 'doorHw', untextured: { baseColor: [0.86, 0.68, 0.30], metallic: 0.9, roughness: 0.28 } } : null,
+      this.mesh_doorHwR ? { ...this.mesh_doorHwR, model: frame.doorMatrixR ?? IDENTITY, material: 'doorHw', untextured: { baseColor: [0.86, 0.68, 0.30], metallic: 0.9, roughness: 0.28 } } : null,
+      ...(frame.keyVisible && this.mesh_key ? [{ ...this.mesh_key, model: frame.keyMatrix, material: 'modelKey', hot: frame.keyHot }] : []),
+    ].filter(Boolean)
     const all = [...this.meshes.map(m => {
       if (m.material !== 'panelBad') return { ...m, model: IDENTITY }
       const t = frame.time, ph = m.phase
@@ -334,6 +342,15 @@ export class Renderer {
       gl.uniform1i(u.tHeight, tex(4, set.height))
       gl.uniform1f(u.uNormalFlip, set.normalFlip ?? 1)
     }
+    // defaults por draw — um material nunca herda estado do anterior (senão o porteiro
+    // aparece com o estado da última luminária, como acontecia à chave)
+    gl.uniform1i(u.uUntextured, 0)
+    gl.uniform1f(u.uPomScale, 0)
+    gl.uniform1f(u.uEmissive, 0)
+    gl.uniform1f(u.uMetallic, 0)
+    gl.uniform1f(u.uRoughness, 0.8)
+    gl.uniform3f(u.uAlbedoTint, 1, 1, 1)
+    gl.uniform3f(u.uEmissiveColor, 0, 0, 0)
     switch (m.material) {
       case 'wall':
         bindSet(T.wall)
@@ -393,12 +410,13 @@ export class Renderer {
         gl.uniform1f(u.uRoughness, m.untextured.roughness)
         break
       case 'exitGlow':
-        gl.uniform1i(u.uUntextured, 1)
-        gl.uniform3fv(u.uBaseColor, m.untextured.baseColor)
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, T.exitGlow)
+        gl.uniform1i(u.tAlbedo, 0)
+        gl.uniform1i(u.uUntextured, 2)   // albedo = gradiente radial (centro fundido → bordas escuras)
+        gl.uniform1f(u.uRoughness, 0.95)
         gl.uniform1f(u.uMetallic, 0.0)
-        gl.uniform1f(u.uRoughness, 0.9)
-        gl.uniform3f(u.uEmissiveColor, m.untextured.emissive[0], m.untextured.emissive[1], m.untextured.emissive[2])
-        gl.uniform1f(u.uEmissive, m.untextured.emissiveStrength ?? 1.6)
+        gl.uniform3f(u.uEmissiveColor, 0.42, 1.0, 0.60)
+        gl.uniform1f(u.uEmissive, 1.45)
         break
       case 'modelKey':
         bindSet(this.textures.key)
@@ -449,6 +467,18 @@ export class Renderer {
         gl.uniform3f(u.uAlbedoTint, 0.60, 0.53, 0.48)   // pele domada — o foco da lanterna é agressivo
         break
       }
+      case 'lampHousing':
+        gl.uniform1i(u.uUntextured, 1)
+        gl.uniform3fv(u.uBaseColor, m.untextured.baseColor)
+        gl.uniform1f(u.uMetallic, m.untextured.metallic)
+        gl.uniform1f(u.uRoughness, m.untextured.roughness)
+        break
+      case 'lampSteel':
+        gl.uniform1i(u.uUntextured, 1)
+        gl.uniform3fv(u.uBaseColor, m.untextured.baseColor)
+        gl.uniform1f(u.uMetallic, m.untextured.metallic)
+        gl.uniform1f(u.uRoughness, m.untextured.roughness)
+        break
       case 'sign':
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, T.sign)

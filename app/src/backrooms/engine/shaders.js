@@ -62,7 +62,7 @@ uniform vec3 uAlbedoTint;
 uniform float uPomScale;       // >0 activa parallax oclusion mapping
 uniform float uNormalFlip;
 
-#define MAX_POINTS 3
+#define MAX_POINTS 6
 uniform vec3  uHemiSky, uHemiGround;
 uniform float uHemiIntensity;
 uniform int   uPointCount;

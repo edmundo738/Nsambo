@@ -1,5 +1,5 @@
 // NSAMBO ENGINE — THE BACKROOMS — Lobby 0 · ponto de entrada
-import { generateLevel, validateLevel } from './engine/wfc.js'
+import { generateLevel, validateLevel, findPath } from './engine/wfc.js'
 import { buildLevelMeshes, CELL } from './engine/scene.js'
 import { Renderer } from './engine/renderer.js'
 import { Input } from './engine/input.js'
@@ -41,6 +41,8 @@ const QA_ARMZ = params.has('armz') ? Number(params.get('armz')) : null
 const QA_ARMS = params.has('arms') ? Number(params.get('arms')) : null
 const QA_ARMX = params.has('armx') ? Number(params.get('armx')) : null
 const QA_HASKEY = params.has('haskey')
+const QA_DOOROPEN = params.has('dooropen')   // QA: porta já destravada e aberta (validação visual do vão)
+const QA_QADEATH = params.has('qadeath')     // QA: ecrã de morte após 1.5 s (validação visual)
 const QA_STALKERDEMO = params.has('stalkerdemo')   // validação: stalker à frente do jogador, em espreita
 const QA_STALKER_DIST = (() => { const v = parseFloat(params.get('stalkerdist') ?? ''); return Number.isFinite(v) ? v : null })()   // QA: distância-alvo do spawn do stalker
 const AUTOSTART = params.has('autostart') || QA_STALKERDEMO
@@ -111,6 +113,8 @@ class Game {
     $('btn-restart')?.addEventListener('click', () => this._restart(false))
     $('btn-newseed')?.addEventListener('click', () => this._restart(true))
     $('btn-again')?.addEventListener('click', () => this._restart(true))
+    $('btn-retry')?.addEventListener('click', () => this._restart(false))
+    $('btn-death-newseed')?.addEventListener('click', () => this._restart(true))
     $('btn-mute')?.addEventListener('click', () => { this.audio.setMuted(!this.audio.muted); if (this.ost) this.ost.muted = this.audio.muted; $('btn-mute').textContent = this.audio.muted ? 'SOM: DESLIGADO' : 'SOM: LIGADO' })
     const vol = $('volume'); if (vol) vol.addEventListener('input', () => { const v = Number(vol.value); this.audio.setVolume(v); if (this.ost) this.ost.volume = v * 0.35 })
     document.addEventListener('pointerlockchange', () => {
@@ -225,6 +229,7 @@ class Game {
     this.violetPos = pickVioletPos(lvl, CELL)   // sempre numa célula aberta
     this.puzzle = createPuzzleState()
     if (QA_HASKEY) { this.puzzle = { ...this.puzzle, hasKey: true, keyTaken: true } }
+    if (QA_DOOROPEN) { this.puzzle = { ...this.puzzle, hasKey: true, keyTaken: true, doorOpen: true }; this.doorProgress = 1; if (this.player) this.player.exitBlocked = false }
     this.doorProgress = 0
     this.battery = 1
     this.flashlightOn = !QA_NOFLASH
@@ -237,6 +242,9 @@ class Game {
     this._keyDiscovered = false; this._reachT = null; this._keyTargeted = false; this._keyT = QA_HASKEY ? -10 : null
     this._keyAnimT = null; this._locoDist = 0; this._lastRenderT = null
     if (this._loco) { this._loco.state = 'idle'; this._loco.phase = 0; this._loco.amp = 0; this._loco.ampTarget = 0 }
+    this.player?.setCrouch?.(false)
+    const ci = $('crouch-ind'); if (ci) ci.classList.remove('on')
+    this._dreadT = undefined
     this._prevKeys = new Set()
     this.hud.explored.clear()
     if (QA_YAW !== null) this.player.yaw = QA_YAW
@@ -249,6 +257,15 @@ class Game {
       if (this.player.isSolid(tcx, tcz)) {
         console.warn('QA_AT dentro de célula sólida — a reverter para o spawn')
         this.player.x = lvl.spawn.x * CELL + CELL / 2; this.player.z = lvl.spawn.z * CELL + CELL / 2
+      }
+    }
+    // câmara inicial virada para DENTRO do nível — nunca de cara para uma parede
+    if (QA_YAW === null) {
+      const path = findPath(lvl)
+      if (path && path.length >= 2) {
+        const s0 = path[0], s1 = path[1]
+        const d = [(s1 % lvl.size) - (s0 % lvl.size), Math.floor(s1 / lvl.size) - Math.floor(s0 / lvl.size)]
+        this.player.yaw = Math.atan2(d[0], -d[1])
       }
     }
     if (this.stalkerAssets) this._spawnStalker()   // seed nova → cérebro novo (determinístico)
@@ -368,9 +385,10 @@ class Game {
     }
     // ── o stalker — ouve, vê, lembra, decai ───────────────────────
     if (this._noisePulse > 0) this._noisePulse = Math.max(0, this._noisePulse - dt / 2.4)
-    const noiseNow = Math.max(cam.moving ? (cam.sprinting ? 1.0 : 0.42) : 0, this._noisePulse)
+    const crouchNoise = this.player.crouch ? 0.38 : 1
+    const noiseNow = Math.max(cam.moving ? (cam.sprinting ? 1.0 : 0.42) * crouchNoise : 0, this._noisePulse)
     if (this.stalker) {
-      const s = this.stalker.update(dt, { px: cam.eyeX, pz: cam.eyeZ, noise: noiseNow, time })
+      const s = this.stalker.update(dt, { dt, px: cam.eyeX, pz: cam.eyeZ, noise: noiseNow, time, crouch: this.player.crouch })
       const creepable = s.state !== 'dormant' && s.state !== 'gone'
       this.audio.setStalkerBreath(creepable ? Math.max(0, Math.min(1, 1.35 - s.distance / 9.5)) : 0)
       for (const ev of s.events) this._onStalkerEvent(ev)
@@ -381,6 +399,12 @@ class Game {
     }
     // tremor da câmara (pounce)
     if (this._shake > 0) this._shake = Math.max(0, this._shake - dt * 1.4)
+    // dirigismo sonoro: a cada ~45–80 s um acorde distante de desassossego — nunca durante a caça
+    this._dreadT = (this._dreadT ?? (24 + Math.random() * 20)) - dt
+    if (this._dreadT <= 0) {
+      this._dreadT = 42 + Math.random() * 38
+      if (!this.stalker || this.stalker.brain?.state !== 'hunt') this.audio.dreadSting(0.5 + Math.random() * 0.4)
+    }
     // bateria da lanterna
     if (this.flashlightOn && this.battery > 0) {
       this.battery = Math.max(0, this.battery - dt / LEVEL1.batterySeconds)
@@ -403,6 +427,11 @@ class Game {
       this.hud.setBattery(this.battery)
     }
     if (pressed('KeyM')) { this.hud.toggleMinimap(); this.audio.uiTick() }
+    if (pressed('KeyC') && this.state === 'playing') {
+      this.player.setCrouch(!this.player.crouch)
+      const el = $('crouch-ind'); if (el) el.classList.toggle('on', this.player.crouch)
+      this.audio.uiTick()
+    }
     // alvo de interação — raycast do centro da câmara (alcance curto, esfera r=0.42)
     const px = cam.eyeX, pz = cam.eyeZ
     const eyeY = cam.eyeY ?? EYE_FALLBACK
@@ -425,7 +454,7 @@ class Game {
     const doorDist = Math.hypot(ddx, ddz)
     const lookH = Math.hypot(look[0], look[2]) || 1   // look vem escalado por cos(pitch) — normalizar no plano
     const doorCos = doorDist > 0.9 ? (ddx * look[0] + ddz * look[2]) / (doorDist * lookH) : 1
-    if (doorDist < 3.6 && doorCos > 0.35 && player.hasLineOfSight(px, pz, built.door.x, built.door.z, player.exitIdx)) {
+    if (!this.puzzle.doorOpen && doorDist < 3.6 && doorCos > 0.35 && player.hasLineOfSight(px, pz, built.door.x, built.door.z, player.exitIdx)) {
       prompt = this.puzzle.hasKey ? '[E] ABRIR A SAÍDA' : 'PORTA TRANCADA'
       target = 'door'
     }
@@ -506,16 +535,23 @@ class Game {
       case 'sight-stalk': this.audio.stalkerSting(0.5); break
       case 'sight-hunt': case 'stalk-hunt': this.audio.stalkerSting(1.0); break
       case 'pounce':
-        this.audio.stalkerPounce()
-        this.battery = Math.max(0, this.battery - 0.25)
-        this.player.stamina = Math.max(0, this.player.stamina - 0.45)
-        this._shake = 1.0
-        this.hud.toast('ELE TE TOCOU', 2.2)
+        this._die('ELE VIU VOCÊ.')
         break
       case 'vanish': this.audio.stalkerVanish(); break
       case 'lost-trail': break   // silêncio — ele perdeu-te, não tens de saber já
       default: break
     }
+  }
+
+  _die(cause) {
+    if (this.state !== 'playing') return
+    this.state = 'dead'
+    this.audio.stalkerPounce()
+    this._shake = 1.0
+    const ds = $('death-stats'); if (ds) ds.textContent = `TEMPO ${fmtTime(this.playTime)} · PASSADAS ${this.steps}`
+    const dc = $('death-cause'); if (dc) dc.textContent = cause ?? 'ELE ENCONTROU VOCÊ.'
+    this.hud.showScreen('screen-death')
+    this.input.exitLock()
   }
 
   _win() {
@@ -556,13 +592,24 @@ class Game {
       }
       const look = p.lookDir()
       view = mat4.lookAt(camPos, [camPos[0] + look[0], camPos[1] + look[1], camPos[2] + look[2]], [0, 1, 0])
+      if (this.state === 'playing' && p.roll) view = mat4.multiply(mat4.create(), rotZ(p.roll), view)
     }
-    // modelo da porta (desliza) e da chave (roda + flutua)
+    // modelo da porta — folhas rodam para DENTRO (dobradiças na ombreira, ~109°)
     const built = this.built
-    const doorModel = (() => {
+    const doorAngle = 1.9 * easeInOut(this.doorProgress)
+    const hingeDoor = (hinge, theta) =>
+      compose(translateM(hinge[0], hinge[1], hinge[2]), rotYTranslate(0, 0, 0, theta), translateM(-hinge[0], -hinge[1], -hinge[2]))
+    const doorModelL = (() => {
       if (!built) return IDENTITY
-      const s = -2.4 * easeInOut(this.doorProgress)   // a porta cede e engole-se pelo chão
-      return translation(0, s, 0)
+      const d = built.door, n = d.normal
+      if (d.axisX) return hingeDoor([d.dat - 0.97, 0, d.plane], doorAngle * n[2])
+      return hingeDoor([d.plane, 0, d.dat - 0.97], -doorAngle * n[0])
+    })()
+    const doorModelR = (() => {
+      if (!built) return IDENTITY
+      const d = built.door, n = d.normal
+      if (d.axisX) return hingeDoor([d.dat + 0.97, 0, d.plane], -doorAngle * n[2])
+      return hingeDoor([d.plane, 0, d.dat + 0.97], doorAngle * n[0])
     })()
     const keyModel = (() => {
       if (!built || !built.keyPos || this.puzzle?.keyTaken) return IDENTITY
@@ -602,7 +649,7 @@ class Game {
       recomputeNormals(this._armBlend, this._armIndices, this._armNormals)
       recomputeTangents(this._armBlend, this._armNormals, this._armUvs, this._armIndices, this._armTangents)
       this.renderer.updateDynamic('arms', this._armBlend, this._armNormals, this._armTangents)
-      const viewMat = compose(translateM(this._swayX, this._swayY, 0), armsLocal(reach))
+      const viewMat = compose(translateM(this._swayX, this._swayY - (this.player.crouch ? 0.045 : 0), 0), armsLocal(reach))
       const handRig = rightHandCentroid(this._armBlend, this._rHandIdx)
       const foreRigR = centroidOf(this._armBlend, this._foreR, [handRig[0], handRig[1] + 0.19, handRig[2] + 0.04])
       this._handView = transformVec(viewMat, handRig)
@@ -667,13 +714,21 @@ class Game {
     const spotView = mat4.lookAt(spotPos, [spotPos[0] + lookDir[0], spotPos[1] + lookDir[1], spotPos[2] + lookDir[2]], [0, 1, 0])
     const spotProj = mat4.perspective((95 * Math.PI) / 180, 1.0, 0.25, 34)
     const lightViewProj = mat4.multiply(mat4.create(), spotProj, spotView)
-    // luzes pontuais
+    // luzes pontuais — as lâmpadas vivas mais próximas emitem de verdade (mortas, nada)
     const lvl = LEVEL1
     const points = []
     if (built) {
       points.push({ pos: [built.exit.x + CELL / 2, 2.1, built.exit.z + CELL / 2], color: lvl.exitLight.color, radius: lvl.exitLight.radius })
       if (built.keyPos && !this.puzzle?.keyTaken) points.push({ pos: [built.keyPos.x, built.keyPos.y - 0.05, built.keyPos.z], color: lvl.keyLight.color, radius: lvl.keyLight.radius })
       points.push({ pos: this.violetPos, color: lvl.violetLight.color, radius: lvl.violetLight.radius })
+      const lamps = built.lamps ?? []
+      const alive = lamps.filter(l => !l.bad)
+        .map(l => ({ l, d: (l.x - camPos[0]) ** 2 + (l.z - camPos[2]) ** 2 }))
+        .sort((a, b) => a.d - b.d).slice(0, 2)
+      for (const { l } of alive) {
+        if (l.d > 90) continue
+        points.push({ pos: [l.x, l.y, l.z], color: [0.92, 0.78, 0.52], radius: 4.8 })
+      }
     }
     // dying flicker
     const dying = this.battery < 0.18 && this.flashlightOn
@@ -700,7 +755,8 @@ class Game {
         outer: lvl.spot.outer,
       },
       lightMatrix: lightViewProj,
-      doorMatrix: doorModel,
+      doorMatrixL: doorModelL,
+      doorMatrixR: doorModelR,
       keyMatrix: keyModel,
       keyVisible: !!built && !!built.keyPos && !this.puzzle?.keyTaken,
       heldKeyMatrix: heldKeyModel,
@@ -716,6 +772,10 @@ class Game {
 }
 
 function easeInOut(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2 }
+function fmtTime(t) {
+  const m = Math.floor(t / 60), s = Math.floor(t % 60)
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
 
 // arranque: carregar texturas e só depois criar o jogo
 import { loadAllTextures, loadPBRSet, loadOne } from './engine/textures.js'
@@ -743,6 +803,7 @@ const boot = async () => {
     if (AUTOSTART) {
       try { window.__game._start() } catch (e) { console.error('autostart:', e) }
     }
+    if (QA_QADEATH) setTimeout(() => { try { window.__game?._die('O QUARTO TE EXPULOU.') } catch (e) { console.error(e) } }, 1800)
   } catch (err) {
     console.error(err)
     const el = $('loading-tip')

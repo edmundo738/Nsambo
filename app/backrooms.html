@@ -30,6 +30,7 @@
       <div class="track"><div class="fill" id="battery-fill" style="width:100%"></div></div>
     </div>
     <div id="key-ind">CHAVE</div>
+    <div id="crouch-ind">AGACHADO</div>
     <div id="minimap-wrap">
       <div class="label">MAPA — M</div>
       <canvas id="minimap" width="176" height="176"></canvas>
@@ -44,7 +45,7 @@
     <div class="title-tag">Você atravessou uma parede amarela numa loja vazia e caiu num espaço que não deveria existir. Não há janelas. Não há fome. Há apenas mais quarto.</div>
     <div class="controls">
       <div><b>W A S D</b> mover &nbsp;·&nbsp; <b>RATO</b> olhar</div>
-      <div><b>SHIFT</b> correr (fôlego) &nbsp;·&nbsp; <b>SPACE</b> saltar</div>
+      <div><b>SHIFT</b> correr (fôlego) &nbsp;·&nbsp; <b>SPACE</b> saltar &nbsp;·&nbsp; <b>C</b> agachar</div>
       <div><b>E</b> interagir &nbsp;·&nbsp; <b>F</b> lanterna</div>
       <div><b>M</b> mapa &nbsp;·&nbsp; <b>LMB</b> usar ferramenta &nbsp;·&nbsp; <b>Q</b> ferramenta</div>
       <div><b>ESC</b> pausa</div>
@@ -54,6 +55,16 @@
     <div class="seed-line" id="seed-label">SEMENTE 1337</div>
     <div class="violet-note">— NÃO VÁ VER O FUNDO DA LUZ VIOLETA —</div>
     <div class="fineprint">NSAMBO ENGINE · WFC · PBR · PSX &nbsp;|&nbsp; HEADPHONES RECOMENDADOS</div>
+  </div>
+
+  <!-- MORTE -->
+  <div class="screen" id="screen-death">
+    <div class="death-big">ELE VIU VOCÊ.</div>
+    <div class="death-sub" id="death-cause">ELE ENCONTROU VOCÊ.</div>
+    <div class="death-stats" id="death-stats">TEMPO 00:00 · PASSADAS 0</div>
+    <button class="btn" id="btn-retry">ACORDAR NO MESMO QUARTO</button>
+    <button class="btn ghost" id="btn-death-newseed">OUTRO QUARTO (SEMENTE NOVA)</button>
+    <div class="fineprint">O QUARTO NÃO PERDOA. O QUARTO NÃO ESQUECE.</div>
   </div>
 
   <!-- PAUSA -->

@@ -199,7 +199,9 @@ export class StalkerBrain {
     }
 
     // ── sentidos (visão + audição) ───────────────────────────────
-    const canSee = dist < 26 && this._fovVisible(px, pz, dist) && this._losClear(this.x, this.z, px, pz)
+    // agachado: assinatura muito menor — visão encurtada (26→15 m) e audição já multiplicada fora
+    const sightRange = env.crouch ? 15 : 26
+    const canSee = dist < sightRange && this._fovVisible(px, pz, dist) && this._losClear(this.x, this.z, px, pz)
     if (canSee) {
       this.memPos = [px, pz]
       this.memAge = 0

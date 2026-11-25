@@ -228,6 +228,39 @@ export class GameAudio {
     g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.95)
     o2.connect(bp); bp.connect(g2); g2.connect(this.master); o2.start(t0 + 0.06); o2.stop(t0 + 1.0)
   }
+  dreadSting(strength = 0.6) {
+    if (!this.ensure()) return
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.02
+    // cluster distante em RE b menor — chegado devagar, chega tarde demais
+    const freqs = [73.42, 92.5, 116.54, 146.83]   // D2 · F#2 · A#2 · D3
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 5.5
+    lp.frequency.setValueAtTime(320, t0)
+    lp.frequency.exponentialRampToValueAtTime(1150, t0 + 2.6)
+    lp.frequency.exponentialRampToValueAtTime(240, t0 + 7.4)
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(0.16 * strength, t0 + 2.3)
+    g.gain.setValueAtTime(0.16 * strength, t0 + 3.6)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 7.6)
+    lp.connect(g); g.connect(this.master)
+    for (const f of freqs) {
+      const o = ctx.createOscillator(); o.type = 'triangle'
+      o.frequency.value = f * (1 + (Math.random() - 0.5) * 0.006)
+      const og = ctx.createGain(); og.gain.value = f === 146.83 ? 0.32 : 1.0
+      o.connect(og); og.connect(lp)
+      o.start(t0); o.stop(t0 + 7.8)
+    }
+    // batida cardíaca subjacente (dois golpes e o silêncio)
+    for (const dt of [0.0, 0.62]) {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(52, t0 + dt)
+      o.frequency.exponentialRampToValueAtTime(38, t0 + dt + 0.32)
+      const hg = ctx.createGain()
+      hg.gain.setValueAtTime(0.0001, t0 + dt)
+      hg.gain.exponentialRampToValueAtTime(0.34 * strength, t0 + dt + 0.02)
+      hg.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.42)
+      o.connect(hg); hg.connect(this.master); o.start(t0 + dt); o.stop(t0 + dt + 0.5)
+    }
+  }
   stalkerVanish() {
     if (!this.ensure()) return
     const ctx = this.ctx, t0 = ctx.currentTime

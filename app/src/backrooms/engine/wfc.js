@@ -241,10 +241,11 @@ export function generateLevel({ seed = 1337, size = 26 } = {}) {
       if (!passBfsOk(exit0, key0)) { cells[i] = OPEN; return false }
       return true
     }
-    // Pilares: célula aberta totalmente rodeada por abertas vira coluna
+    // Pilares: célula aberta totalmente rodeada por abertas recebe uma COLUNA FINA.
+    // A célula CONTINUA ABERTA — a coluna é geometria (obstáculo físico), não parede do grid.
     let pillars = 0
     const pillarCells = []
-    for (let t = 0; t < 600 && pillars < 24; t++) {
+    for (let t = 0; t < 600 && pillars < 18; t++) {
       const x = 2 + Math.floor(rand() * (size - 4)), z = 2 + Math.floor(rand() * (size - 4))
       const i = z * size + x
       if (cells[i] !== OPEN || protect.has(i)) continue
@@ -254,7 +255,8 @@ export function generateLevel({ seed = 1337, size = 26 } = {}) {
         if (cells[(z + dz) * size + x + dx] !== OPEN) { surrounded = false; break }
       }
       if (!surrounded) continue
-      if (tryWall(i)) { pillars++; pillarCells.push(i) }
+      if (pillarCells.includes(i)) continue
+      pillarCells.push(i); pillars++
     }
     // Divisórias: selar ARESTAS entre células abertas → paredes finas.
     // Crescem em LINHAS RETAS (salas, não ruído). Revert-on-fail no BFS.

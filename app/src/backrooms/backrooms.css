@@ -128,6 +128,14 @@ body { font-family: "Courier New", ui-monospace, Menlo, monospace; color: var(--
 #screen-pause .pause-big, #screen-end .end-big { font-size: clamp(30px, 5vw, 52px); letter-spacing: .3em; color: var(--amber); text-shadow: 0 0 28px rgba(255,216,148,.3); }
 #screen-end .end-big { color: #d6c4ff; text-shadow: 0 0 42px rgba(176,124,255,.55), 3px 3px 0 #241033; }
 .pause-sub, .end-sub { margin-top: 10px; font-size: 10px; letter-spacing: .35em; color: var(--amber-dim); }
+/* ── morte — o único ecrã vermelho do jogo ─────────────────────────── */
+#screen-death { background: radial-gradient(ellipse at 50% 40%, rgba(46,0,0,.88) 0%, rgba(8,2,4,.97) 78%) !important; }
+#screen-death .death-big { font-size: clamp(30px, 5.6vw, 56px); letter-spacing: .18em; color: #e0332b; text-shadow: 0 0 34px rgba(224,51,43,.6), 4px 4px 0 #2b0503; animation: deathPulse 2.6s ease-in-out infinite; }
+#screen-death .death-sub { margin-top: 12px; font-size: 11px; letter-spacing: .35em; color: #c98484; }
+#screen-death .death-stats { margin-top: 22px; font-size: 12px; letter-spacing: .3em; color: #e8b9b0; }
+@keyframes deathPulse { 0%,100% { opacity: .92 } 50% { opacity: 1; text-shadow: 0 0 52px rgba(224,51,43,.85), 4px 4px 0 #2b0503 } }
+#crouch-ind { position: absolute; left: 18px; bottom: 92px; font-size: 10px; letter-spacing: .4em; color: #d8c79a; opacity: 0; transition: opacity .25s; text-shadow: 0 0 12px rgba(216,199,154,.4); pointer-events: none; }
+#crouch-ind.on { opacity: .85; }
 .end-stats { margin-top: 20px; font-size: 12px; letter-spacing: .3em; color: #ffe9b8; }
 
 .volume-row { pointer-events: auto; margin-top: 22px; font-size: 9px; letter-spacing: .35em; color: var(--amber-dim); }

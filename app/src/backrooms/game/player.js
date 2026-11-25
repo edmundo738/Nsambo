@@ -8,6 +8,7 @@ const RADIUS = 0.34
 const EYE = 1.62
 const GRAV = 12.5
 
+const EYE_CROUCH = 1.02
 export class Player {
   constructor(lvl) {
     this.lvl = lvl
@@ -15,6 +16,11 @@ export class Player {
     this.sealed = new Set((lvl.sealedEdges ?? []).map(([a, b]) => EDGE_KEY(a, b)))
     this.exitIdx = lvl.exit.z * this.size + lvl.exit.x
     this.exitBlocked = true        // a porta só abre com a chave
+    // colunas finas dos Backrooms — obstáculos físicos em células abertas
+    this.columns = (lvl.pillarCells ?? []).map(i => {
+      const cx = (i % this.size) * CELL + CELL / 2, cz = Math.floor(i / this.size) * CELL + CELL / 2
+      return [cx - 0.175, cz - 0.175, cx + 0.175, cz + 0.175]
+    })
     // spawn (célula -> mundo)
     this.x = lvl.spawn.x * CELL + CELL / 2
     this.z = lvl.spawn.z * CELL + CELL / 2
@@ -28,7 +34,12 @@ export class Player {
     this.bobAmount = 0
     this.stepDistance = 0
     this.finished = false
+    this.crouch = false            // AGACHAR — [C] alterna; silencioso, lento, baixo
+    this.eyeH = EYE                // altura actual dos olhos (interpola para agachar)
+    this.roll = 0                  // inclinação lateral da câmara no strafe (suavizada)
+    this.landDip = 0               // afundar da câmara ao aterrar
   }
+  setCrouch(v) { this.crouch = !!v }
   cellAt(cx, cz) {
     if (cx < 0 || cz < 0 || cx >= this.size || cz >= this.size) return WALL
     return this.lvl.cells[cz * this.size + cx]
@@ -63,19 +74,24 @@ export class Player {
     const len = Math.hypot(mx, mz)
     const moving = len > 0.001
     if (moving) { mx /= len; mz /= len }
-    // estamina / sprint
-    const wantsSprint = input.isSprint() && moving
+    // estamina / sprint (agachado não corre; ruído é a metade)
+    const wantsSprint = input.isSprint() && moving && !this.crouch
     if (this.exhausted && this.stamina > 0.3) this.exhausted = false
     const sprinting = wantsSprint && !this.exhausted && this.stamina > 0.02
     if (sprinting) this.stamina = Math.max(0, this.stamina - 0.30 * dt)
-    else this.stamina = Math.min(1, this.stamina + 0.185 * dt)
+    else this.stamina = Math.min(1, this.stamina + (this.crouch ? 0.30 : 0.185) * dt)
     if (this.stamina <= 0.02) this.exhausted = true
-    const speed = sprinting ? 4.6 : 2.7
+    const speed = this.crouch ? 1.5 : (sprinting ? 4.6 : 2.7)
     // física vertical
+    const vyBefore = this.vy
     if (input.isDown('Space') && this.feet <= 0.001) this.vy = 4.7
     this.vy -= GRAV * dt
     this.feet += this.vy * dt
-    if (this.feet <= 0) { this.feet = 0; this.vy = 0 }
+    if (this.feet <= 0) {
+      if (vyBefore < -5.2) this.landDip = 0.13          // aterrou de salto — a câmara cede
+      this.feet = 0; this.vy = 0
+    }
+    this.landDip = Math.max(0, this.landDip - dt * 0.42)
     // movimento no plano + colisão (2 iterações)
     let nx = this.x + mx * speed * dt
     let nz = this.z + mz * speed * dt
@@ -85,15 +101,22 @@ export class Player {
     }
     this.x = nx; this.z = nz
     // head-bob + distância de passada
+    // agachar — altura dos olhos interpolada; bob e strafe-roll reduzidos/suavizados
+    const eyeTarget = this.crouch ? EYE_CROUCH : EYE
+    this.eyeH += (eyeTarget - this.eyeH) * Math.min(1, dt * 9)
+    const lat = moving ? (mx * right[0] + mz * right[2]) : 0    // +1 strafe direita
+    const rollTarget = -lat * (this.crouch ? 0.020 : 0.030)
+    this.roll += (rollTarget - this.roll) * Math.min(1, dt * 7)
+    const bobScale = this.crouch ? 0.018 : 1
     const horizSpeed = moving ? speed : 0
-    this.bobAmount += ((moving ? (sprinting ? 1 : 0.55) : 0) - this.bobAmount) * Math.min(1, dt * 8)
+    this.bobAmount += ((moving ? (sprinting ? 1 : this.crouch ? 0.32 : 0.55) : 0) - this.bobAmount) * Math.min(1, dt * 8)
     this.bobPhase += horizSpeed * dt * 1.9
     const before = this.stepDistance
     if (moving) this.stepDistance += horizSpeed * dt
-    const bobY = Math.sin(this.bobPhase * 2) * 0.032 * this.bobAmount
-    const bobX = Math.cos(this.bobPhase) * 0.018 * this.bobAmount
-    this.camEye = [this.x + right[0] * bobX, EYE + this.feet + bobY, this.z + right[2] * bobX]
-    return { eyeX: this.camEye[0], eyeZ: this.camEye[2], eyeY: this.camEye[1], moving, sprinting, stepped: this.stepDistance - before }
+    const bobY = Math.sin(this.bobPhase * 2) * 0.032 * this.bobAmount * bobScale
+    const bobX = Math.cos(this.bobPhase) * 0.018 * this.bobAmount * bobScale
+    this.camEye = [this.x + right[0] * bobX, this.eyeH + this.feet + bobY - this.landDip, this.z + right[2] * bobX]
+    return { eyeX: this.camEye[0], eyeZ: this.camEye[2], eyeY: this.camEye[1], moving, sprinting, crouch: this.crouch, roll: this.roll, stepped: this.stepDistance - before }
   }
   _resolve(px, pz) {
     // círculo vs AABBs de células sólidas + divisórias seladas
@@ -106,6 +129,13 @@ export class Player {
         const res = pushCircleOutOfBox(x, z, RADIUS, box)
         x = res[0]; z = res[1]
       } else if (cellX >= 0 && cellZ >= 0 && cellX < this.size && cellZ < this.size) {
+        // colunas finas desta célula (obstáculo físico, célula aberta)
+        for (const box of this.columns) {
+          const cxi = Math.floor(((box[0] + box[2]) / 2) / CELL), czi = Math.floor(((box[1] + box[3]) / 2) / CELL)
+          if (cxi !== cellX || czi !== cellZ) continue
+          const res = pushCircleOutOfBox(x, z, RADIUS, box)
+          x = res[0]; z = res[1]
+        }
         // arestas seladas desta célula com os vizinhos E e S (para não repetir)
         if (this.isEdgeSealed(cellX, cellZ, cellX + 1, cellZ)) {
           const bx = (cellX + 1) * CELL

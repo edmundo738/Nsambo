@@ -115,11 +115,11 @@ export class Hud {
   }
   // ecrãs
   showScreen(name) {
-    for (const s of ['screen-title', 'screen-pause', 'screen-end']) $(s)?.classList.toggle('show', s === name)
-    $('hud')?.classList.toggle('hidden', name === 'screen-title' || name === 'screen-end')
+    for (const s of ['screen-title', 'screen-pause', 'screen-end', 'screen-death']) $(s)?.classList.toggle('show', s === name)
+    $('hud')?.classList.toggle('hidden', name === 'screen-title' || name === 'screen-end' || name === 'screen-death')
   }
   hideScreens() {
-    for (const s of ['screen-title', 'screen-pause', 'screen-end']) $(s)?.classList.remove('show')
+    for (const s of ['screen-title', 'screen-pause', 'screen-end', 'screen-death']) $(s)?.classList.remove('show')
     $('hud')?.classList.remove('hidden')
   }
   setEndStats({ time, steps }) {
