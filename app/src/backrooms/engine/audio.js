@@ -24,6 +24,8 @@ export class GameAudio {
     comp.connect(this.ctx.destination)
     return true
   }
+  suspend() { try { this.ctx?.suspend?.() } catch { /* sem ctx */ } }
+  resume() { try { this.ctx?.resume?.() } catch { /* sem ctx */ } }
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05) }
   setMuted(m) { this.muted = m; if (this.master) this.master.gain.setTargetAtTime(m ? 0 : this.volume, this.ctx.currentTime, 0.03) }
   _noise() {

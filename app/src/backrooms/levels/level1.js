@@ -12,7 +12,7 @@ export const LEVEL1 = {
   spot: { color: [1.0, 0.94, 0.76], intensity: 10.0, inner: 0.30, outer: 0.60 },
   exitLight: { color: [0.55, 1.0, 0.68], intensity: 6.5, radius: 6.0 },
   keyLight: { color: [1.0, 0.84, 0.36], intensity: 3.0, radius: 4.5 },
-  violetLight: { color: [0.52, 0.26, 0.92], intensity: 4.2, radius: 7.5 },
+  violetLight: { color: [0.52, 0.26, 0.92], intensity: 4.2, radius: 10.0 },
   grain: 0.06,
   vignette: 0.52,
   levels: 44,

@@ -24,6 +24,7 @@ jobs:
         shell: pwsh
         run: |
           npm ci --no-audit --no-fund
+          npm test
           npx vite build --config vite.config.build.js
           Copy-Item ../launcher/* dist/
 

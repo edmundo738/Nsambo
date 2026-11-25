@@ -240,6 +240,8 @@ export class Renderer {
     // ── braços em 1ª pessoa (viewmodel): sempre visíveis ────────────
     if (frame.armMatrix && this.mesh_arms) {
       gl.clear(gl.DEPTH_BUFFER_BIT)
+      // viewmodel com projeção própria (FOV largo) — os braços saem pelos cantos inferiores
+      if (frame.viewmodelViewProj) gl.uniformMatrix4fv(this.uMain.uViewProj, false, frame.viewmodelViewProj)
       this._bindMaterial({ ...this.mesh_arms, material: 'modelArms', model: frame.armMatrix })
       gl.bindVertexArray(this.mesh_arms.vao)
       gl.drawElements(gl.TRIANGLES, this.mesh_arms.indexCount, gl.UNSIGNED_INT, 0)

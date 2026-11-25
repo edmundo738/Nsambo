@@ -1,4 +1,5 @@
 // NSAMBO ENGINE — hud.js — HUD retrô discreta (DOM) + minimapa fog-of-war + ecrãs
+import { CELL } from '../engine/scene.js'
 const $ = (id) => document.getElementById(id)
 
 export class Hud {
@@ -87,8 +88,8 @@ export class Hud {
       ctx.stroke()
     }
     // marcadores
-    const px = (player.x / (size * 3)) * c.width
-    const pz = (player.z / (size * 3)) * c.height
+    const px = (player.x / (size * CELL)) * c.width
+    const pz = (player.z / (size * CELL)) * c.height
     // chave (só se perto / descoberta)
     if (opts.showKey && lvl.key) {
       ctx.fillStyle = '#ffd76a'

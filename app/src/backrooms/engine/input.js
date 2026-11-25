@@ -1,6 +1,6 @@
 // NSAMBO ENGINE — input.js — teclado + rato com pointer lock
 // Mapa de controlos (configurável): WASD mover · SHIFT correr · SPACE saltar
-//   E interagir · Q alternar ferramenta · LMB usar ferramenta · F lanterna · M minimap
+//   E interagir · Q/LMB (reservados — AINDA NÃO implementados) · F lanterna · M minimap
 export class Input {
   constructor(target) {
     this.target = target

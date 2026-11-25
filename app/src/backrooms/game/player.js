@@ -121,6 +121,27 @@ export class Player {
     }
     return [x, z]
   }
+  // linha de visão XZ (células sólidas + arestas seladas). ignoreCell: índice de célula sólida a ignorar (porta da saída)
+  hasLineOfSight(x0, z0, x1, z1, ignoreCell = -1) {
+    const passable = (ax, az, bx, bz) => {
+      if (this.isEdgeSealed(ax, az, bx, bz)) return false
+      return !(this.isSolid(bx, bz) && bz * this.size + bx !== ignoreCell)
+    }
+    const dx = x1 - x0, dz = z1 - z0
+    const n = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.1))
+    let pcx = Math.floor(x0 / CELL), pcz = Math.floor(z0 / CELL)
+    for (let i = 1; i <= n; i++) {
+      const cx = Math.floor((x0 + (dx * i) / n) / CELL), cz = Math.floor((z0 + (dz * i) / n) / CELL)
+      if (cx === pcx && cz === pcz) continue
+      if (cx !== pcx && cz !== pcz) {
+        const viaX = passable(pcx, pcz, cx, pcz) && passable(cx, pcz, cx, cz)
+        const viaZ = passable(pcx, pcz, pcx, cz) && passable(pcx, cz, cx, cz)
+        if (!viaX && !viaZ) return false
+      } else if (!passable(pcx, pcz, cx, cz)) return false
+      pcx = cx; pcz = cz
+    }
+    return true
+  }
   forward() { return [Math.sin(this.yaw), 0, -Math.cos(this.yaw)] }
   lookDir() {
     const cp = Math.cos(this.pitch)

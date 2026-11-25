@@ -6,7 +6,10 @@ import { Input } from './engine/input.js'
 import { GameAudio } from './engine/audio.js'
 import { Player } from './game/player.js'
 import { Hud } from './game/hud.js'
-import { createPuzzleState, pickKey, tryExitDoor, validatePuzzle } from './game/puzzle.js'
+import { createPuzzleState, pickKey, tryExitDoor } from './game/puzzle.js'
+import { VM, armsLocal, flashLocal, FLASH_TIP, viewmodelProj } from './game/viewmodel.js'
+import { toggleFlashlight, lightIsOn } from './game/flashlight.js'
+import { pickVioletPos } from './game/violet.js'
 import { mat4 } from './engine/math.js'
 import { LEVEL1 } from './levels/level1.js'
 import { loadGLB } from './engine/gltf.js'
@@ -18,6 +21,7 @@ const PSX_SNAP = params.has('psx')
 const NO_POM = params.has('nopom')
 const FIXED_SEED = params.has('seed') ? Number(params.get('seed')) : null
 const AUTOSTART = params.has('autostart')
+const OST_ON = params.has('ost')   // OST fora do gameplay por defeito (14 s em loop, briga com o áudio sintético)
 const QA_YAW = params.has('yaw') ? Number(params.get('yaw')) : null
 const QA_PITCH = params.has('pitch') ? Number(params.get('pitch')) : null
 const QA_AT = params.has('at') ? params.get('at').split(',').map(Number) : null
@@ -71,6 +75,7 @@ class Game {
     this.lowBatteryWarned = false
     this.deadToastShown = false
     this.startTime = 0
+    this.playTime = 0   // só tempo a jogar (a pausa não conta)
     this.steps = 0
     this.ost = null   // trilha do título/ambiente — <audio> (m4a)
     this._stepAcc = 0
@@ -93,9 +98,11 @@ class Game {
       if (!locked && this.state === 'playing') {
         this.state = 'paused'
         this.hud.showScreen('screen-pause')
+        this.audio.suspend(); this.ost?.pause()
       } else if (locked && this.state === 'paused') {
         this.state = 'playing'
         this.hud.hideScreens()
+        this.audio.resume(); if (!this.audio.muted) this.ost?.play().catch(() => {})
       }
     })
     $('btn-quit-to-title')?.addEventListener('click', () => { this.audio.setMuted(false); this.ost?.pause(); location.reload() })
@@ -125,7 +132,7 @@ class Game {
   reset(seed) {
     // gerar nível (nunca falha — 300/300 sementes válidas em teste)
     let lvl = generateLevel({ seed, size: LEVEL1.size })
-    if (!lvl) lvl = generateLevel({ seed: LEVEL1.seedDefault, size: LEVEL1.size })
+    if (!lvl) { seed = LEVEL1.seedDefault; this.seed = seed; lvl = generateLevel({ seed, size: LEVEL1.size }) }
     const v = validateLevel(lvl)
     if (!v.ok) console.error('nível inválido (não deveria acontecer):', v.errors)
     this.lvl = lvl
@@ -135,8 +142,7 @@ class Game {
     this.player = new Player(lvl)
     // luz violeta distante — ponto médio do percurso spawn→saída
     const ex = this.built.exit, sp = lvl.spawn
-    const spx = sp.x * CELL + CELL / 2, spz = sp.z * CELL + CELL / 2
-    this.violetPos = [spx + (ex.x + CELL / 2 - spx) * 0.55, 1.9, spz + (ex.z + CELL / 2 - spz) * 0.55]
+    this.violetPos = pickVioletPos(lvl, CELL)   // sempre numa célula aberta
     this.puzzle = createPuzzleState()
     this.doorProgress = 0
     this.battery = 1
@@ -146,6 +152,9 @@ class Game {
     this.steps = 0
     this._stepAcc = 0
     this.startTime = performance.now()
+    this.playTime = 0
+    this._keyDiscovered = false; this._reachT = null; this._keyTargeted = false
+    this._prevKeys = new Set()
     this.hud.explored.clear()
     if (QA_YAW !== null) this.player.yaw = QA_YAW
     if (QA_PITCH !== null) this.player.pitch = QA_PITCH
@@ -172,13 +181,13 @@ class Game {
   _start() {
     this.audio.ensure()
     this.audio.startAmbience()
-    if (!this.ost) {
+    if (OST_ON && !this.ost) {
       this.ost = new Audio(import.meta.env.BASE_URL + 'ost/over-the-radio.m4a')
       this.ost.loop = true
       this.ost.preload = 'auto'
       this.ost.volume = 0.28
     }
-    this.ost.play().catch(() => { /* sem gesto ainda — fica em silêncio */ })
+    this.ost?.play().catch(() => { /* sem gesto ainda — fica em silêncio */ })
     this.reset(this.seed)
     this.state = 'playing'
     this.hud.hideScreens()
@@ -220,6 +229,7 @@ class Game {
 
   _update(dt, time) {
     const player = this.player, lvl = this.lvl, built = this.built
+    this.playTime += dt
     const cam = player.update(dt, this.input)
     // passos
     this._stepAcc += cam.stepped
@@ -240,13 +250,12 @@ class Game {
         this.hud.toast('A LANTERNA MORREU')
       }
     }
-    // lanterna com cintilação de morte iminente
-    const dying = this.battery < 0.18 && this.flashlightOn
-    const flicker = dying ? (Math.sin(time * 31) * Math.sin(time * 17.3 + 1.7) > -0.55 ? 1 : 0.25) : 1
     // interações — arestas de tecla
     const pressed = (code) => this.input.isDown(code) && !this._prevKeys.has(code)
     if (pressed('KeyF')) {
-      this.flashlightOn = !this.flashlightOn
+      const r = toggleFlashlight(this.flashlightOn, this.battery)
+      this.flashlightOn = r.on
+      if (r.denied) this.hud.toast('SEM BATERIA')
       this.audio.click(this.flashlightOn)
       this.hud.setBattery(this.battery)
     }
@@ -264,14 +273,16 @@ class Game {
     }
     let prompt = null, target = null
     if (!this.puzzle.keyTaken && built.keyPos) {
-      if (raySphere(built.keyPos.x, built.keyPos.y + 0.52, built.keyPos.z, 0.46, 2.5)) {
+      if (raySphere(built.keyPos.x, built.keyPos.y + 0.52, built.keyPos.z, 0.46, 2.5) &&
+          player.hasLineOfSight(px, pz, built.keyPos.x, built.keyPos.z)) {
         prompt = '[E] APANHAR A CHAVE'; target = 'key'
       }
     }
     const ddx = built.door.x - px, ddz = built.door.z - pz
     const doorDist = Math.hypot(ddx, ddz)
-    const doorCos = doorDist > 0.9 ? (ddx * look[0] + ddz * look[2]) / doorDist : 1
-    if (doorDist < 3.6 && doorCos > 0.35) {
+    const lookH = Math.hypot(look[0], look[2]) || 1   // look vem escalado por cos(pitch) — normalizar no plano
+    const doorCos = doorDist > 0.9 ? (ddx * look[0] + ddz * look[2]) / (doorDist * lookH) : 1
+    if (doorDist < 3.6 && doorCos > 0.35 && player.hasLineOfSight(px, pz, built.door.x, built.door.z, player.exitIdx)) {
       prompt = this.puzzle.hasKey ? '[E] ABRIR A SAÍDA' : 'PORTA TRANCADA'
       target = 'door'
     }
@@ -300,7 +311,7 @@ class Game {
         }
       }
     }
-    this._prevKeys = new Set([...this.input.keys])
+    this._prevKeys.clear(); for (const k of this.input.keys) this._prevKeys.add(k)   // sem alocar por frame
     // animação da porta (desliza para dentro da parede)
     if (this.puzzle.doorOpen && this.doorProgress < 1) {
       this.doorProgress = Math.min(1, this.doorProgress + dt / 1.6)
@@ -333,14 +344,13 @@ class Game {
     this.hud.setStamina(player.stamina, player.exhausted)
     this.hud.setBattery(this.battery)
     this.audio.update(dt)
-    this._valid = validatePuzzle(this.puzzle)
   }
 
   _win() {
     if (this.state !== 'playing') return
     this.state = 'finished'
     this.audio.doorUnlock()  // eco final
-    this.hud.setEndStats({ time: (performance.now() - this.startTime) / 1000, steps: this.steps })
+    this.hud.setEndStats({ time: this.playTime, steps: this.steps })
     this.hud.showScreen('screen-end')
     this.input.exitLock()
   }
@@ -407,32 +417,18 @@ class Game {
       const invView = mat4.invert(view)
       if (!invView) return null
       const reach = this._reachT != null ? Math.sin(Math.PI * Math.min(1, (time - this._reachT) / 0.42)) : 0
-      const armY = QA_ARMY ?? -0.28 - 0.05 * reach
-      const armZ = QA_ARMZ ?? -0.53 + 0.17 * reach
-      return compose(
-        invView,
-        translateM(QA_ARMX ?? 0.0, armY, armZ),
-        rotYTranslate(0, 0, 0, QA_ARMYAW ?? Math.PI),
-        scaleM(QA_ARMS ?? 0.50),
-        translateM(0, -1.38, 0),
-      )
+      return compose(invView, armsLocal(reach))   // ver game/viewmodel.js
     })()
     // lanterna presa às mãos — eixo do modelo (X, lente para +X) apontado a -Z
     const flashModel = (() => {
       if (this.state !== 'playing' || !this.modelsReady) return null
       const invView = mat4.invert(view)
       if (!invView) return null
-      return compose(
-        invView,
-        translateM(0.165, -0.190, -0.44),
-        rotYTranslate(0, 0, 0, Math.PI / 2 - 0.16),
-        rotZ(-0.14),
-        scaleM(0.8),
-      )
+      return compose(invView, flashLocal())   // lente (+X) → −Z (testado)
     })()
     const viewProjFinal = mat4.multiply(mat4.create(), persp, view)
     // projeção da sombra da lanterna — nasce na PONTA da lanterna em punho
-    const spotPos = flashModel ? transformVec(flashModel, [0.15, 0.02, 0]) : [camPos[0], camPos[1] - 0.14, camPos[2]]
+    const spotPos = flashModel ? transformVec(flashModel, FLASH_TIP) : [camPos[0], camPos[1] - 0.14, camPos[2]]
     const lookDir = this.state === 'title' ? [Math.sin(0.7), -0.06, -Math.cos(0.7)] : this.player.lookDir()
     const spotView = mat4.lookAt(spotPos, [spotPos[0] + lookDir[0], spotPos[1] + lookDir[1], spotPos[2] + lookDir[2]], [0, 1, 0])
     const spotProj = mat4.perspective((95 * Math.PI) / 180, 1.0, 0.25, 34)
@@ -450,6 +446,7 @@ class Game {
     const flicker = dying ? (Math.sin(time * 31) * Math.sin(time * 17.3 + 1.7) > -0.55 ? 1 : 0.22) : 1
     this.renderer.render({
       viewProj: viewProjFinal,
+      viewmodelViewProj: this.state === 'playing' ? mat4.multiply(mat4.create(), viewmodelProj(aspect), view) : null,
       lightViewProj,
       cameraPos: camPos,
       time,
@@ -460,7 +457,7 @@ class Game {
       hemiIntensity: QA_ARMSONLY ? 1.5 : lvl.hemi.intensity,
       points: QA_ARMSONLY ? [] : points,
       spot: {
-        on: QA_ARMSONLY ? false : this.flashlightOn && this.battery >= 0,
+        on: QA_ARMSONLY ? false : lightIsOn(this.flashlightOn, this.battery),
         pos: spotPos,
         dir: lookDir,
         color: lvl.spot.color,
