@@ -46,8 +46,9 @@ export class Player {
   }
   update(dt, input, sensitivity = 0.0023) {
     // rato → orientação
+    // convenção: yaw=0 → olhar −Z; yaw cresce no sentido horário (vista roda p/ a direita com rato p/ a direita)
     const md = input.consumeMouseDelta()
-    this.yaw -= md.x * sensitivity
+    this.yaw += md.x * sensitivity
     this.pitch -= md.y * sensitivity
     this.pitch = Math.max(-1.35, Math.min(1.35, this.pitch))
     // direção no plano

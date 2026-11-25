@@ -17,11 +17,18 @@ export class Input {
     })
     on(window, 'keyup', (e) => this.keys.delete(e.code))
     on(window, 'blur', () => this.keys.clear())
-    on(document, 'pointerlockchange', () => { this.locked = document.pointerLockElement === this.target })
+    on(document, 'pointerlockchange', () => {
+      this.locked = document.pointerLockElement === this.target
+      // a transição de lock pode entregar deltas residuais ("estalo") — zera tudo
+      this.mouseDX = 0; this.mouseDY = 0
+    })
     on(document, 'mousemove', (e) => {
       if (!this.locked) return
-      this.mouseDX += e.movementX || 0
-      this.mouseDY += e.movementY || 0
+      const dx = e.movementX || 0, dy = e.movementY || 0
+      // um humano não desloca 200px num único evento; valores absurdos são artefactos do browser/lock
+      if (Math.abs(dx) > 200 || Math.abs(dy) > 200) return
+      this.mouseDX += dx
+      this.mouseDY += dy
     })
     on(this.target, 'mousedown', (e) => { if (e.button === 0) this.lmb = true })
     on(window, 'mouseup', (e) => { if (e.button === 0) this.lmb = false })
