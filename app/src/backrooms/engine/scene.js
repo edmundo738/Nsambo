@@ -244,7 +244,7 @@ export function buildLevelMeshes(lvl) {
   }
   // sinal SAÍDA — encostado ao plano da porta, virado para a abordagem
   {
-    const y0 = 2.52, y1 = 2.86, half = 0.55, off = 0.07
+    const y0 = 2.52, y1 = 2.86, half = 0.55, off = 0.085   // +1,5 cm à frente da face do lintéu (T=0,07) — evita z-fight com a parede
     if (doorAxisX) {
       const z = plane + off * nrm[2]
       if (nrm[2] >= 0) addQuad(doorSign, [dat - half, y0, z], [dat + half, y0, z], [dat + half, y1, z], [dat - half, y1, z], [0, 0, 1], [1, 0, 0, 0], [0, 0], [1, 0], [1, 1], [0, 1])
@@ -337,7 +337,7 @@ export function buildLevelMeshes(lvl) {
     spawn: { x: sp.x, y: 1.62, z: sp.z, yaw: lvl.spawn.z * Math.PI * 0 + Math.PI / 4 },
     exit: { x: ex.x, z: ex.z },
     keyPos: kp ? { x: kp.x, y: 1.02, z: kp.z } : null,
-    door: { x: doorInfo.axisX ? doorInfo.dat : doorInfo.plane, z: doorInfo.axisX ? doorInfo.plane : doorInfo.dat, axisX: doorAxisX, normal: doorInfo.normal },
+    door: { x: doorInfo.axisX ? doorInfo.dat : doorInfo.plane, z: doorInfo.axisX ? doorInfo.plane : doorInfo.dat, axisX: doorAxisX, normal: doorInfo.normal, plane: doorInfo.plane, dat: doorInfo.dat },
     paintings,
   }
 
