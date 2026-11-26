@@ -13,6 +13,8 @@ import { mat4 } from './engine/math.js'
 import { LEVEL1 } from './levels/level1.js'
 import { loadGLB } from './engine/gltf.js'
 import { flashLocal, viewmodelProj, FLASH_TIP } from './game/viewmodel.js'
+import { buildGymLevel, GYM_SEED } from './levels/gym.js'
+import { DebugPanel } from './game/debugpanel.js'
 
 const $ = (id) => document.getElementById(id)
 const params = new URLSearchParams(window.location.search)
@@ -32,6 +34,8 @@ const QA_DOOROPEN = params.has('dooropen')   // QA: porta já destravada e abert
 const QA_PICKUP_MARKERS = params.has('pickupmarkers')   // QA: anéis debug sob os pickups — NUNCA no jogo
 const QA_POWER = params.has('power')   // QA: pré-visualizar o corredor da saída com o quadro restaurado
 const QA_NOWIN = params.has('nowin')   // QA: não disparar a vitória ao pisar a sala de saída (inspeção visual)
+const QA_GYM = params.has('gym')       // ACADEMIA — nível de testes fixo (Gameplay Gym / Test Room)
+const QA_DEBUG = params.has('debug')   // painel de diagnóstico ligado por omissão (F3 liga/desliga)
 const QA_QADEATH = params.has('qadeath')     // QA: ecrã de morte após 1.5 s (validação visual)
 const QA_STALKERDEMO = params.has('stalkerdemo')   // validação: stalker à frente do jogador, em espreita
 const QA_STALKER_DIST = (() => { const v = parseFloat(params.get('stalkerdist') ?? ''); return Number.isFinite(v) ? v : null })()   // QA: distância-alvo do spawn do stalker
@@ -66,6 +70,9 @@ class Game {
     this.canvas = $('gl')
     this.renderer = renderer
     this.input = new Input(this.canvas)
+    this.debugPanel = new DebugPanel()
+    this.debugPanel.setEnabled(QA_DEBUG || QA_GYM)
+    window.addEventListener('keydown', (e) => { if (e.code === 'F3') { e.preventDefault(); this.debugPanel.toggle() } })
     this.audio = new GameAudio()
     this.hud = new Hud(LEVEL1.size)
     this.state = 'title'
@@ -188,7 +195,8 @@ class Game {
 
   reset(seed) {
     // gerar nível (nunca falha — 300/300 sementes válidas em teste)
-    let lvl = generateLevel({ seed, size: LEVEL1.size })
+    if (QA_GYM) seed = GYM_SEED
+    let lvl = QA_GYM ? buildGymLevel() : generateLevel({ seed, size: LEVEL1.size })
     if (!lvl) { seed = LEVEL1.seedDefault; this.seed = seed; lvl = generateLevel({ seed, size: LEVEL1.size }) }
     const v = validateLevel(lvl)
     if (!v.ok) console.error('nível inválido (não deveria acontecer):', v.errors)
@@ -214,6 +222,7 @@ class Game {
         console.log('sala de saída: arestas seladas —', extra.length)
       }
     }
+    this.seed = QA_GYM ? GYM_SEED : seed
     this.lvl = lvl
     this.built = buildLevelMeshes(lvl)
     this.renderer.setScene(this.built)
@@ -317,7 +326,7 @@ class Game {
       }
     }
     if (this.stalkerAssets) this._spawnStalker()   // seed nova → cérebro novo (determinístico)
-    this.hud.setObjective('EXPLORE A SALA. ENCONTRE A CHAVE.')
+    this.hud.setObjective(QA_GYM ? 'ACADEMIA — TESTA TUDO · F3 PAINEL' : 'EXPLORE A SALA. ENCONTRE A CHAVE.')
     this.hud.setKey(false)
     this.hud.setBattery(1)
     this.hud.setStamina(1, false)
@@ -392,6 +401,27 @@ class Game {
     try { this.input.requestLock() } catch { /* headless sem lock */ }
   }
 
+  _debugTick(dt) {
+    const p = this.player
+    const st = this.stalker
+    const info = {
+      seed: this.seed,
+      x: p?.x ?? 0, z: p?.z ?? 0,
+      cellX: p ? Math.floor(p.x / CELL) : 0, cellZ: p ? Math.floor(p.z / CELL) : 0,
+      yawDeg: p ? ((p.yaw * 180 / Math.PI) % 360 + 360) % 360 : 0,
+      sprinting: !!(p && p.sprinting),
+      battery: this.battery,
+      flashlightOn: this.flashlightOn,
+      stamina: p?.stamina ?? 1,
+      exhausted: !!p?.exhausted,
+      doorProgress: this.doorProgress,
+      hasKey: !!this.puzzle?.hasKey,
+      powerOn: !!this._powerOn,
+      stalker: st && st.present ? `${(st.brain?.distance ?? 0).toFixed(1)} m · ${st.brain?.state ?? '?'}` : 'ausente',
+    }
+    this.debugPanel.update(dt, info)
+  }
+
   _loop(t) {
     requestAnimationFrame(this._loop)
     const dt = Math.min(0.05, this._last ? (t - this._last) / 1000 : 0.016)
@@ -421,6 +451,7 @@ class Game {
     }
     if (this.state === 'playing') this._update(dt, t / 1000)
     this._render(t / 1000)
+    this._debugTick(dt)
   }
 
   _update(dt, time) {
