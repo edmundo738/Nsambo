@@ -14,7 +14,9 @@ import { LEVEL1 } from './levels/level1.js'
 import { loadGLB } from './engine/gltf.js'
 import { flashLocal, viewmodelProj, FLASH_TIP } from './game/viewmodel.js'
 import { buildGymLevel, GYM_SEED } from './levels/gym.js'
+import { buildDevMapLevel, DEVMAP_SEED } from './levels/devmap.js'
 import { DebugPanel } from './game/debugpanel.js'
+import { DevMenu } from './game/devmenu.js'
 
 const $ = (id) => document.getElementById(id)
 const params = new URLSearchParams(window.location.search)
@@ -35,6 +37,8 @@ const QA_PICKUP_MARKERS = params.has('pickupmarkers')   // QA: anéis debug sob 
 const QA_POWER = params.has('power')   // QA: pré-visualizar o corredor da saída com o quadro restaurado
 const QA_NOWIN = params.has('nowin')   // QA: não disparar a vitória ao pisar a sala de saída (inspeção visual)
 const QA_GYM = params.has('gym')       // ACADEMIA — nível de testes fixo (Gameplay Gym / Test Room)
+const QA_DEVMAP = params.has('devmap') // GALERIA DEV — mapa com todos os ativos (?devmap=1)
+const QA_BUILDMENU = params.has('buildmenu')   // abre o menu de desenvolvedor automaticamente (QA)
 const QA_DEBUG = params.has('debug')   // painel de diagnóstico ligado por omissão (F3 liga/desliga)
 const QA_QADEATH = params.has('qadeath')     // QA: ecrã de morte após 1.5 s (validação visual)
 const QA_STALKERDEMO = params.has('stalkerdemo')   // validação: stalker à frente do jogador, em espreita
@@ -70,9 +74,32 @@ class Game {
     this.canvas = $('gl')
     this.renderer = renderer
     this.input = new Input(this.canvas)
+    this.mapKind = QA_DEVMAP ? 'devmap' : QA_GYM ? 'gym' : 'lobby'
+    this._godBattery = false
+    this._typeBuf = ''
     this.debugPanel = new DebugPanel()
-    this.debugPanel.setEnabled(QA_DEBUG || QA_GYM)
-    window.addEventListener('keydown', (e) => { if (e.code === 'F3') { e.preventDefault(); this.debugPanel.toggle() } })
+    this.debugPanel.setEnabled(QA_DEBUG || QA_GYM || QA_DEVMAP)
+    this.devMenu = new DevMenu({
+      teleport: (kind) => this._teleport(kind),
+      relock: () => { try { this.input.requestLock() } catch { /* headless */ } },
+      getMapLabel: () => this.mapKind === 'gym' ? 'ACADEMIA' : this.mapKind === 'devmap' ? 'GALERIA DEV' : 'LOBBY 0',
+      isGodBattery: () => this._godBattery,
+      toggleGodBattery: () => { this._godBattery = !this._godBattery; this.hud.toast(this._godBattery ? 'BATERIA INFINITA LIGADA' : 'BATERIA INFINITA DESLIGADA') },
+      stalker: () => this._setupStalkerDemo(6),
+      giveKey: () => { this.puzzle = { ...(this.puzzle ?? {}), hasKey: true, keyTaken: true }; this._keyDiscovered = true; this.hud.toast('CHAVE DADA (DEBUG)') },
+      removeKey: () => { this.puzzle = { ...(this.puzzle ?? {}), hasKey: false, keyTaken: false }; this.hud.toast('CHAVE REMOVIDA') },
+      restorePower: () => { this._fuseInstalled = true; this._powerOn = true; this.hud.toast('QUADRO ELÉTRICO RESTAURADO') },
+      openDoor: () => { this.puzzle = { ...(this.puzzle ?? {}), hasKey: true, keyTaken: true, doorOpen: true }; if (this.player) this.player.exitBlocked = false; this.hud.toast('PORTA A ABRIR (DEBUG)') },
+      toggleF3: () => this.debugPanel.toggle(),
+    })
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'F3') { e.preventDefault(); this.debugPanel.toggle() }
+      const k = (e.key || '').toLowerCase()
+      if (k.length === 1 && k >= 'a' && k <= 'z') {
+        this._typeBuf = (this._typeBuf + k).slice(-5)
+        if (this._typeBuf === 'build') { this._typeBuf = ''; this.devMenu.toggle() }
+      }
+    })
     this.audio = new GameAudio()
     this.hud = new Hud(LEVEL1.size)
     this.state = 'title'
@@ -116,7 +143,7 @@ class Game {
     const vol = $('volume'); if (vol) vol.addEventListener('input', () => { const v = Number(vol.value); this.audio.setVolume(v); if (this.ost) this.ost.volume = v * 0.35 })
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === this.canvas
-      if (!locked && this.state === 'playing') {
+      if (!locked && this.state === 'playing' && !this.devMenu.open) {
         this.state = 'paused'
         this.hud.showScreen('screen-pause')
         this.audio.suspend(); this.ost?.pause()
@@ -129,6 +156,7 @@ class Game {
     $('btn-quit-to-title')?.addEventListener('click', () => { this.audio.setMuted(false); this.ost?.pause(); location.reload() })
     // construir o nível já — o título mostra o vazio como fundo vivo
     this.reset(this.seed)
+    if (QA_BUILDMENU) this.devMenu.show()
     requestAnimationFrame(this._loop)
   }
 
@@ -195,9 +223,11 @@ class Game {
 
   reset(seed) {
     // gerar nível (nunca falha — 300/300 sementes válidas em teste)
-    if (QA_GYM) seed = GYM_SEED
-    let lvl = QA_GYM ? buildGymLevel() : generateLevel({ seed, size: LEVEL1.size })
-    if (!lvl) { seed = LEVEL1.seedDefault; this.seed = seed; lvl = generateLevel({ seed, size: LEVEL1.size }) }
+    const kind = this.mapKind ?? (QA_GYM ? 'gym' : 'lobby')
+    if (kind !== 'lobby') seed = kind === 'gym' ? GYM_SEED : DEVMAP_SEED
+    let lvl = kind === 'gym' ? buildGymLevel() : kind === 'devmap' ? buildDevMapLevel() : generateLevel({ seed, size: LEVEL1.size })
+    if (!lvl) { seed = LEVEL1.seedDefault; lvl = generateLevel({ seed, size: LEVEL1.size }) }
+    this._qaFog = kind === 'devmap' ? 0.02 : null
     const v = validateLevel(lvl)
     if (!v.ok) console.error('nível inválido (não deveria acontecer):', v.errors)
     // ── sala de saída: a célula de saída só é acessível pela porta ──
@@ -222,7 +252,7 @@ class Game {
         console.log('sala de saída: arestas seladas —', extra.length)
       }
     }
-    this.seed = QA_GYM ? GYM_SEED : seed
+    this.seed = kind === 'lobby' ? seed : (kind === 'gym' ? GYM_SEED : DEVMAP_SEED)
     this.lvl = lvl
     this.built = buildLevelMeshes(lvl)
     this.renderer.setScene(this.built)
@@ -326,7 +356,7 @@ class Game {
       }
     }
     if (this.stalkerAssets) this._spawnStalker()   // seed nova → cérebro novo (determinístico)
-    this.hud.setObjective(QA_GYM ? 'ACADEMIA — TESTA TUDO · F3 PAINEL' : 'EXPLORE A SALA. ENCONTRE A CHAVE.')
+    this.hud.setObjective(kind === 'gym' ? 'ACADEMIA — TESTA TUDO · F3 PAINEL' : kind === 'devmap' ? 'GALERIA DEV — TODOS OS ATIVOS · TESTA AS MECÂNICAS' : 'EXPLORE A SALA. ENCONTRE A CHAVE.')
     this.hud.setKey(false)
     this.hud.setBattery(1)
     this.hud.setStamina(1, false)
@@ -336,8 +366,19 @@ class Game {
     }
   }
 
-  _setupStalkerDemo() {
-    if (!this.stalker) return
+  _teleport(kind) {
+    this.mapKind = kind
+    this.seed = kind === 'gym' ? GYM_SEED : kind === 'devmap' ? DEVMAP_SEED : (FIXED_SEED ?? LEVEL1.seedDefault)
+    this.devMenu.close()
+    this.reset(this.seed)
+    this.state = 'playing'
+    this.hud.hideScreens()
+    this.hud.toast(kind === 'gym' ? 'TELEPORTADO: ACADEMIA' : kind === 'devmap' ? 'TELEPORTADO: GALERIA DEV' : 'TELEPORTADO: LOBBY 0')
+    try { this.input.requestLock() } catch { /* headless */ }
+  }
+
+  _setupStalkerDemo(dist = QA_STALKER_DIST ?? 6.0, band = QA_STALKER_DIST ? 1.6 : 3.5) {
+    if (!this.stalker) { this.hud.toast('STALKER AINDA NÃO CARREGOU'); return }
     // projeta à frente do jogador (yaw inicial 0.75π) e cria espreita garantida
     const p = this.player
     const fx = Math.sin(p.yaw), fz = -Math.cos(p.yaw)
@@ -347,13 +388,12 @@ class Game {
       if (this.lvl.cells[cz * this.lvl.size + cx] !== 1) continue
       const wx = cx * CELL_ + CELL_ / 2, wz = cz * CELL_ + CELL_ / 2
       const dx = wx - p.x, dz = wz - p.z
-      const dist = Math.hypot(dx, dz)
-      const target = QA_STALKER_DIST ?? 6.0
-      const band = QA_STALKER_DIST ? 1.6 : 3.5
-      if (dist < target - band || dist > target + band) continue
+      const distNow = Math.hypot(dx, dz)
+      const target = dist
+      if (distNow < target - band || distNow > target + band) continue
       if (!this.player.hasLineOfSight(p.x, p.z, wx, wz)) continue   // à vista — validação justa
       const ang = Math.abs(Math.atan2(dx, -dz) - p.yaw)   // angular diff (wrap feito no cérebro)
-      const score = Math.abs(dist - target) * 0.25 + Math.abs(ang)
+      const score = Math.abs(distNow - target) * 0.25 + Math.abs(ang)
       if (score < bestScore) { bestScore = score; best = { cx, cz, wx, wz } }
     }
     if (!best) return
@@ -366,6 +406,7 @@ class Game {
     b.memAge = 0
     b.yaw = Math.atan2(p.x - b.x, -(p.z - b.z))
     console.log('[stalkerdemo] stalker em espreita a', Math.hypot(best.wx - p.x, best.wz - p.z).toFixed(1), 'm')
+    void fx; void fz
   }
 
   _start() {
@@ -406,6 +447,7 @@ class Game {
     const st = this.stalker
     const info = {
       seed: this.seed,
+      map: this.mapKind === 'gym' ? 'ACADEMIA' : this.mapKind === 'devmap' ? 'GALERIA DEV' : 'LOBBY 0',
       x: p?.x ?? 0, z: p?.z ?? 0,
       cellX: p ? Math.floor(p.x / CELL) : 0, cellZ: p ? Math.floor(p.z / CELL) : 0,
       yawDeg: p ? ((p.yaw * 180 / Math.PI) % 360 + 360) % 360 : 0,
@@ -449,7 +491,7 @@ class Game {
         this._ftMax = 0
       }
     }
-    if (this.state === 'playing') this._update(dt, t / 1000)
+    if (this.state === 'playing' && !this.devMenu.open) this._update(dt, t / 1000)
     this._render(t / 1000)
     this._debugTick(dt)
   }
@@ -499,7 +541,7 @@ class Game {
       if (!this.stalker || this.stalker.brain?.state !== 'hunt') this.audio.dreadSting(0.5 + Math.random() * 0.4)
     }
     // bateria da lanterna
-    if (this.flashlightOn && this.battery > 0) {
+    if (this.flashlightOn && this.battery > 0 && !this._godBattery) {
       this.battery = Math.max(0, this.battery - dt / LEVEL1.batterySeconds)
       if (this.battery < 0.2 && !this.lowBatteryWarned) {
         this.lowBatteryWarned = true

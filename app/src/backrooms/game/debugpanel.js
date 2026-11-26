@@ -38,7 +38,7 @@ export class DebugPanel {
     if (this._acc < 0.25) return
     this._acc = 0
     const lines = [
-      `ACADEMIA · semente ${info.seed}`,
+      `${info.map ?? 'MAPA'} · semente ${info.seed}`,
       `FPS ${this._fps.toFixed(0)} · frame ${(1000 / Math.max(this._fps, 1)).toFixed(1)} ms`,
       `POS ${info.x.toFixed(1)}, ${info.z.toFixed(1)} · célula ${info.cellX},${info.cellZ}`,
       `YAW ${info.yawDeg.toFixed(0)}° · ${info.sprinting ? 'A CORRER' : 'A ANDAR'}`,

@@ -7,6 +7,28 @@ design de jogos). É um **nível fixo**, determinístico e separado do jogo, ond
 todas as mecânicas podem ser exercitadas e validadas **antes** de chegarem à
 cada. A campanha nunca é a sala de testes.
 
+## MENU «BUILD» — in-game do desenvolvedor (teleporte entre mapas)
+
+Escrever **build** durante o jogo abre um overlay de desenvolvedor (Esc ou
+«build» de novo fecha; o jogo fica congelado por trás). Serve para ir e voltar
+entre arenas sem jogar a campanha.
+
+- **TELEPORTAR PARA**
+  - `ACADEMIA` — a sala de testes (planta fixa A–F)
+  - `GALERIA DEV` — mapa aberto com **todos os ativos e modelos do jogo**
+    (mesa + chave, porta SAÍDA, quadro eléctrico, pickups, medkit/fusível/cassete/pé-de-cabra/lanterna velha,
+    7 quadros, fixtures bons e avariados, pilares, stalker, viewmodel, note) — salão 66×66 m
+    com iluminação e física reais, para testar movimento e interação
+  - `LOBBY 0` — o jogo completo
+- **DISPARAR MECÂNICA** — sem ter de a procurar no mapa:
+  - `Stalker a 6 m à vista` (entra em espreita imediatamente)
+  - `DAR A CHAVE` / `Remover a chave`
+  - `Restaurar quadro eléctrico`
+  - `ABRIR A PORTA` (a porta anima como no fim do jogo)
+- **PAINÉIS** — `F3` (painel de diagnóstico) e `BATERIA INFINITA` (alternar)
+
+`?buildmenu=1` abre o menu no arranque (QA) · `?devmap=1` arranca direto na Galeria Dev.
+
 ## Como abrir
 
 ```bash
@@ -103,6 +125,14 @@ Adaptados para a nossa stack (JS + WebGL, sem Godot):
   porta → vitória, quadro eléctrico, lanterna, som), obstáculos dinâmicos,
   testes automáticos de sucesso e falha.
 - **F3 — experiência completa:** QA visual + performance, e só depois release.
+
+## Fluxo recomendado para uma mecânica nova (ex.: uma faca)
+
+1. Implementar a mecânica atrás de um botão no menu BUILD (ou numa zona da Academia).
+2. Testar na **GALERIA DEV**: movimento, colisão, interação, animação, som.
+3. Botão dedicado para disparar o estado máximo (ex.: «faca na mão») para testar sem caçar pickups.
+4. `npm test` — incluir sucesso + falha.
+5. Só depois integrar no jogo (Lobby 0) e, se pedido, publicar release.
 
 ## Como adicionar uma mecânica nova (checklist)
 
