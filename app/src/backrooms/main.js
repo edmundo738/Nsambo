@@ -138,7 +138,7 @@ class Game {
   async _loadModels() {
     const base = import.meta.env.BASE_URL + 'models/'
     try {
-      const [arms, relaxA, relaxB, guard, grab, push, grabL, key, flash] = await Promise.all([
+      const [arms, relaxA, relaxB, guard, grab, push, grabL, key, flash, note] = await Promise.all([
         loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 0 }),
         loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 0 }),
         loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 2.0 }),
@@ -148,6 +148,7 @@ class Game {
         loadGLB(base + 'arms_rig.glb', { anim: 'grab.L', animTime: 0.36 }),
         loadGLB(base + 'psx_house_key.glb'),
         loadGLB(base + 'psx_flashlight.glb'),
+        loadGLB(base + 'psx_torn_note_page.glb'),
       ])
       this.armPoses = {
         relaxA: relaxA.positions, relaxB: relaxB.positions, guard: guard.positions,
@@ -172,6 +173,7 @@ class Game {
       await this.renderer.setDynamicModel('arms', arms)
       await this.renderer.setModel('key', key)
       await this.renderer.setModel('flash', flash)
+      try { await this.renderer.setModel('note', note) } catch (e) { console.warn('nota rasgada não carregou — omitida:', e) }
       this.modelsReady = true
       console.log('modelos carregados — armas:', arms.verts, 'verts /', arms.tris, 'tris · chave:', key.verts, 'verts /', key.tris, 'tris')
     } catch (e) {
@@ -240,6 +242,17 @@ class Game {
     this.startTime = performance.now()
     this.playTime = 0
     this._keyDiscovered = false; this._reachT = null; this._keyTargeted = false; this._keyT = QA_HASKEY ? -10 : null
+    // página rasgada de lore junto ao pedestal — prop estático, sem interação
+    this._noteMatrix = (() => {
+      const kp = this.built?.keyPos
+      if (!kp) return null
+      return compose(
+        translateM(kp.x + 0.46, 0.015, kp.z + 0.34),
+        rotYTranslate(0, 0, 0, 0.62),
+        rotX(-Math.PI / 2),
+        scaleM(1.15),
+      )
+    })()
     this._keyAnimT = null; this._locoDist = 0; this._lastRenderT = null
     if (this._loco) { this._loco.state = 'idle'; this._loco.phase = 0; this._loco.amp = 0; this._loco.ampTarget = 0 }
     this.player?.setCrouch?.(false)
@@ -747,6 +760,35 @@ class Game {
     // dying flicker
     const dying = this.battery < 0.18 && this.flashlightOn
     const flicker = dying ? (Math.sin(time * 31) * Math.sin(time * 17.3 + 1.7) > -0.55 ? 1 : 0.22) : 1
+    // ── volumétricos: funis de poeira das lâmpadas vivas + feixe da lanterna ──
+    const cones = []
+    const wantVol = this.state === 'playing'
+    if (wantVol) {
+      if (lightIsOn(this.flashlightOn, this.battery)) {
+        cones.push({ apex: spotPos, dir: lookDir, length: 7.4, radius: 2.5, color: lvl.spot.color, intensity: 0.50 * flicker })
+      }
+      const aliveCones = (built?.lamps ?? []).filter(l => !l.bad)
+        .map(l => ({ l, d: (l.x - camPos[0]) ** 2 + (l.z - camPos[2]) ** 2 }))
+        .filter(({ d }) => d < 15 * 15)
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 6)
+      for (const { l } of aliveCones) {
+        cones.push({ apex: [l.x, l.y + 0.03, l.z], dir: [0, -1, 0], length: 2.72, radius: 1.45, color: [0.93, 0.80, 0.55], intensity: 0.30 })
+      }
+    }
+    const pulse = this.player?.exhausted ? 1 : clamp((1 - (this.player?.stamina ?? 1)) * 0.6, 0, 1)
+    // projeção do alvo da lanterna (6 m à frente) para o halo de poeira iluminada no passe de pós
+    const torchUV = (() => {
+      if (this.state !== 'playing') return null
+      const t = [spotPos[0] + lookDir[0] * 6, spotPos[1] + lookDir[1] * 6, spotPos[2] + lookDir[2] * 6]
+      const m = viewProjFinal
+      const cw = m[3] * t[0] + m[7] * t[1] + m[11] * t[2] + m[15]
+      if (cw <= 0.05) return null
+      const cx = m[0] * t[0] + m[4] * t[1] + m[8] * t[2] + m[12]
+      const cy = m[1] * t[0] + m[5] * t[1] + m[9] * t[2] + m[13]
+      return [cx / cw * 0.5 + 0.5, cy / cw * 0.5 + 0.5]
+    })()
+    const torchI = lightIsOn(this.flashlightOn, this.battery) ? 0.30 * flicker : 0
     this.renderer.render({
       viewProj: viewProjFinal,
       viewmodelViewProj: this.state === 'playing' ? mat4.multiply(mat4.create(), viewmodelProj(aspect), view) : null,
@@ -781,6 +823,12 @@ class Game {
       grain: lvl.grain,
       vignette: lvl.vignette,
       levels: lvl.levels,
+      cones,
+      pulse,
+      noteMatrix: this._noteMatrix,
+      dust: wantVol,
+      torchUV,
+      torchI,
     })
   }
 }

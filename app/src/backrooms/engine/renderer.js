@@ -1,5 +1,6 @@
 // NSAMBO ENGINE — renderer.js — forward renderer WebGL2 (sombras → PBR → pós PSX)
-import { VS_MESH, VS_DEPTH, VS_POST, FS_DEPTH, FS_MAIN, FS_POST } from './shaders.js'
+import { VS_MESH, VS_DEPTH, VS_POST, FS_DEPTH, FS_MAIN, FS_POST, VS_CONE, FS_CONE, VS_DUST, FS_DUST } from './shaders.js'
+import { buildShaft, buildDust, coneModel } from './volumetrics.js'
 
 function compile(gl, type, src, define) {
   const full = define ? src.replace('#version 300 es\n', `#version 300 es\n${define}\n`) : src
@@ -51,7 +52,45 @@ export class Renderer {
       'uFogColor', 'uFogDensity',
     ])
     this.uDepth = uniforms(gl, this.progDepth, ['uViewProj', 'uModel'])
-    this.uPost = uniforms(gl, this.progPost, ['tScene', 'uRes', 'uTime', 'uGrain', 'uVignette', 'uLevels'])
+    // programas volumétricos (cone de foco / poeira) e pós com pulso bodycam
+    this.progCone = link(gl, VS_CONE, FS_CONE)
+    this.progDust = link(gl, VS_DUST, FS_DUST)
+    this.uCone = uniforms(gl, this.progCone, ['uViewProj', 'uModel', 'uColor', 'uIntensity', 'uTime', 'uCamPos'])
+    this.uDust = uniforms(gl, this.progDust, ['uViewProj', 'uCamPos', 'uBox', 'uTime'])
+    this.uPost = uniforms(gl, this.progPost, ['tScene', 'uRes', 'uTime', 'uGrain', 'uVignette', 'uLevels', 'uPulse', 'uTorchUV', 'uTorchI'])
+    // cone unitário + sementes de poeira
+    this._unitCone = buildShaft()
+    this._coneVao = gl.createVertexArray()
+    gl.bindVertexArray(this._coneVao)
+    const conePos = gl.createBuffer()
+    gl.bindBuffer(gl.ARRAY_BUFFER, conePos)
+    gl.bufferData(gl.ARRAY_BUFFER, this._unitCone.positions, gl.STATIC_DRAW)
+    gl.enableVertexAttribArray(0)
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0)
+    const coneNrm = gl.createBuffer()
+    gl.bindBuffer(gl.ARRAY_BUFFER, coneNrm)
+    gl.bufferData(gl.ARRAY_BUFFER, this._unitCone.normals, gl.STATIC_DRAW)
+    gl.enableVertexAttribArray(1)
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0)
+    const coneIdx = gl.createBuffer()
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, coneIdx)
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this._unitCone.indices, gl.STATIC_DRAW)
+    gl.bindVertexArray(null)
+    const dust = buildDust(150, [6.5, 2.6, 6.5], 1337)
+    this._dustCount = dust.aRnd.length / 2
+    this._dustVao = gl.createVertexArray()
+    gl.bindVertexArray(this._dustVao)
+    const seedBuf = gl.createBuffer()
+    gl.bindBuffer(gl.ARRAY_BUFFER, seedBuf)
+    gl.bufferData(gl.ARRAY_BUFFER, dust.aSeed, gl.STATIC_DRAW)
+    gl.enableVertexAttribArray(0)
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0)
+    const rndBuf = gl.createBuffer()
+    gl.bindBuffer(gl.ARRAY_BUFFER, rndBuf)
+    gl.bufferData(gl.ARRAY_BUFFER, dust.aRnd, gl.STATIC_DRAW)
+    gl.enableVertexAttribArray(1)
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0)
+    gl.bindVertexArray(null)
     // VAO do triângulo de ecrã inteiro
     this.postVao = gl.createVertexArray()
     gl.bindVertexArray(this.postVao)
@@ -214,6 +253,7 @@ export class Renderer {
       this.mesh_doorHwL ? { ...this.mesh_doorHwL, model: frame.doorMatrixL ?? IDENTITY, material: 'doorHw', untextured: { baseColor: [0.86, 0.68, 0.30], metallic: 0.9, roughness: 0.28 } } : null,
       this.mesh_doorHwR ? { ...this.mesh_doorHwR, model: frame.doorMatrixR ?? IDENTITY, material: 'doorHw', untextured: { baseColor: [0.86, 0.68, 0.30], metallic: 0.9, roughness: 0.28 } } : null,
       ...(frame.keyVisible && this.mesh_key ? [{ ...this.mesh_key, model: frame.keyMatrix, material: 'modelKey', hot: frame.keyHot }] : []),
+      ...(frame.noteMatrix && this.mesh_note ? [{ ...this.mesh_note, model: frame.noteMatrix, material: 'modelNote' }] : []),
     ].filter(Boolean)
     const all = [...this.meshes.map(m => {
       if (m.material !== 'panelBad') return { ...m, model: IDENTITY }
@@ -281,6 +321,9 @@ export class Renderer {
       gl.drawElements(gl.TRIANGLES, m.indexCount, gl.UNSIGNED_INT, 0)
     }
 
+    // ── volumétricos aditivos (cones de foco + poeira) — após opacos, antes dos braços ──
+    this._drawVolumetrics(frame)
+
     // ── braços em 1ª pessoa (viewmodel): sempre visíveis ────────────
     if (frame.armMatrix && this.mesh_arms) {
       gl.clear(gl.DEPTH_BUFFER_BIT)
@@ -315,9 +358,54 @@ export class Renderer {
     gl.uniform1f(this.uPost.uGrain, frame.grain)
     gl.uniform1f(this.uPost.uVignette, frame.vignette)
     gl.uniform1f(this.uPost.uLevels, frame.levels)
+    gl.uniform1f(this.uPost.uPulse, frame.pulse ?? 0)
+    gl.uniform2f(this.uPost.uTorchUV, frame.torchUV?.[0] ?? 0.5, frame.torchUV?.[1] ?? 0.5)
+    gl.uniform1f(this.uPost.uTorchI, frame.torchI ?? 0)
     gl.bindVertexArray(this.postVao)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.enable(gl.DEPTH_TEST)
+  }
+
+  _drawVolumetrics(frame) {
+    const gl = this.gl
+    const cones = frame.cones ?? []
+    const wantDust = frame.dust !== false
+    if (!cones.length && !wantDust) return
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.ONE, gl.ONE)          // aditivo puro
+    gl.depthMask(false)                   // não escreve profundidade (é luz, não objecto)
+    gl.disable(gl.CULL_FACE)
+    // ── cones de luz ──
+    if (cones.length) {
+      gl.useProgram(this.progCone)
+      gl.uniformMatrix4fv(this.uCone.uViewProj, false, frame.viewProj)
+      gl.uniform1f(this.uCone.uTime, frame.time)
+      gl.uniform3fv(this.uCone.uCamPos, frame.cameraPos)
+      gl.bindVertexArray(this._coneVao)
+      for (const c of cones) {
+        const model = coneModel(c.apex, c.dir, c.radius, c.length)
+        gl.uniformMatrix4fv(this.uCone.uModel, false, model)
+        gl.uniform3fv(this.uCone.uColor, c.color)
+        gl.uniform1f(this.uCone.uIntensity, c.intensity)
+        gl.drawElements(gl.TRIANGLES, this._unitCone.indices.length, gl.UNSIGNED_SHORT, 0)
+      }
+    }
+    // ── poeira em suspensão ──
+    if (wantDust) {
+      gl.useProgram(this.progDust)
+      gl.uniformMatrix4fv(this.uDust.uViewProj, false, frame.viewProj)
+      gl.uniform3fv(this.uDust.uCamPos, frame.cameraPos)
+      gl.uniform3f(this.uDust.uBox, 6.5, 2.6, 6.5)
+      gl.uniform1f(this.uDust.uTime, frame.time)
+      gl.bindVertexArray(this._dustVao)
+      gl.drawArrays(gl.POINTS, 0, this._dustCount)
+    }
+    gl.bindVertexArray(null)
+    gl.depthMask(true)
+    gl.enable(gl.CULL_FACE)
+    gl.disable(gl.BLEND)
+    // devolve o programa principal — quem vem a seguir (braços/viewmodel) assume progMain ligado
+    gl.useProgram(this.progMain)
   }
 
   _bindMaterial(m) {
