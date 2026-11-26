@@ -39,3 +39,7 @@ app/tools/.blender-libs/
 
 # archives de build para download (não commitar)
 /Nsambo-backrooms-build-*.zip
+
+# preview local de ativos (harness próprio desta máquina)
+/preview/
+app/tools/shot-preview.tmp.mjs

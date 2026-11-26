@@ -189,7 +189,7 @@ class Game {
     try {
       this.stalkerAssets = await StalkerEntity.loadAssets(import.meta.env.BASE_URL)
       await this.renderer.setDynamicModel('stalker', this.stalkerAssets.glb)
-      console.log('stalker: poses bakeadas (rest/idle×3/walk×8/jaw)')
+      console.log('stalker: white_mesh definitivo — 12 mil tris, rig procedural (respira/anda/mandíbula)')
       if (this.lvl) this._spawnStalker()
       if (QA_STALKERDEMO) this._setupStalkerDemo()
     } catch (e) {
@@ -831,7 +831,7 @@ class Game {
       const st = this.stalker
       if (!st || !st.present) return null
       const m = st.matrix()
-      return compose(translateM(m.x, m.y, m.z), rotYTranslate(0, 0, 0, m.yaw), scaleM(1))
+      return compose(translateM(m.x, m.y, m.z), rotYTranslate(0, 0, 0, m.yaw), rotZ(m.roll ?? 0), scaleM(1))
     })()
     if (this.stalker && this.stalker.present) this.renderer.updateDynamic('stalker', this.stalker.positions, this.stalker.normals, this.stalker.tangents)
     // ── adereços novos (fusível, cassetes, kits, decor) — pivôs no chão ──
