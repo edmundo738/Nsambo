@@ -75,7 +75,7 @@ export function buildLevelMeshes(lvl) {
   const B = {
     wall: makeBucket(), carpet: makeBucket(), ceiling: makeBucket(), panel: makeBucket(), panelBad: makeBucket(), cornice: makeBucket(), bulb: makeBucket(), exitRoom: makeBucket(), fuseDoor: makeBucket(), fuseFrame: makeBucket(),
     frame: makeBucket(), wood: makeBucket(), baseboard: makeBucket(),
-    sign: makeBucket(), paintingEye: makeBucket(), paintingMtn: makeBucket(),
+    sign: makeBucket(), paintingEye: makeBucket(), paintingMtn: makeBucket(), paintingPortrait: makeBucket(), paintingShip: makeBucket(), paintingCorridor: makeBucket(), paintingForest: makeBucket(), tableBrass: makeBucket(),
     lampHousing: makeBucket(), lampSteel: makeBucket(),
     fusebox: makeBucket(), fuseLamp: makeBucket(),
   }
@@ -325,12 +325,32 @@ export function buildLevelMeshes(lvl) {
     }
   }
 
-  // ── pedestal + chave ───────────────────────────────────────────
+  // ── mesa lateral de madeira + chave ─────────────────────────────
+  // mesa de canto PSX: pernas direitas, avental, prateleira inferior, tampo com bocel e filete de latão
   const Ped = makeBucket()
   if (kp) {
-    addCylinder(Ped, kp.x, kp.z, 0.0, 0.08, 0.26, 8)
-    addCylinder(Ped, kp.x, kp.z, 0.08, 0.92, 0.15, 8)
-    addCylinder(Ped, kp.x, kp.z, 0.92, 0.98, 0.27, 8)
+    const cx = kp.x, cz = kp.z
+    const leg = 0.085, lx = 0.245                       // pernas em ±0.245 (canto a canto 0.575)
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      boxFaces(Ped, [cx + sx * lx - leg / 2, 0.0, cz + sz * lx - leg / 2], [cx + sx * lx + leg / 2, 0.74, cz + sz * lx + leg / 2])
+    }
+    // avental sob o tampo (duas vigas em x, duas em z)
+    boxFaces(Ped, [cx - 0.2875, 0.615, cz - 0.2875], [cx + 0.2875, 0.72, cz - 0.2025])
+    boxFaces(Ped, [cx - 0.2875, 0.615, cz + 0.2025], [cx + 0.2875, 0.72, cz + 0.2875])
+    boxFaces(Ped, [cx - 0.2875, 0.615, cz - 0.2875], [cx - 0.2025, 0.72, cz + 0.2875])
+    boxFaces(Ped, [cx + 0.2025, 0.615, cz - 0.2875], [cx + 0.2875, 0.72, cz + 0.2875])
+    // bocel sob o tampo (perfil em degrau)
+    boxFaces(Ped, [cx - 0.30, 0.705, cz - 0.30], [cx + 0.30, 0.74, cz + 0.30])
+    // prateleira inferior
+    boxFaces(Ped, [cx - 0.235, 0.145, cz - 0.235], [cx + 0.235, 0.20, cz + 0.235])
+    // tampo — 0.69 m² com 6 cm de espessura
+    boxFaces(Ped, [cx - 0.345, 0.74, cz - 0.345], [cx + 0.345, 0.80, cz + 0.345])
+    // filete de latão embutido no tampo (moldura)
+    const b0 = 0.27, b1 = 0.305, by = 0.80, bh = 0.007
+    boxFaces(B.tableBrass, [cx - b1, by, cz - b1], [cx + b1, by + bh, cz - b0])
+    boxFaces(B.tableBrass, [cx - b1, by, cz + b0], [cx + b1, by + bh, cz + b1])
+    boxFaces(B.tableBrass, [cx - b1, by, cz - b0], [cx - b0, by + bh, cz + b0])
+    boxFaces(B.tableBrass, [cx + b0, by, cz - b0], [cx + b1, by + bh, cz + b0])
   }
 
   // ── quadro elétrico (interativo) — parede lateral do penúltimo troço do corredor da saída ──
@@ -413,7 +433,7 @@ export function buildLevelMeshes(lvl) {
     candidates.sort((a, b) => a.h - b.h)
     const usedCells = new Set()
     for (const f of candidates) {
-      if (paintings.length >= 5) break
+      if (paintings.length >= 7) break
       const cellKey = f.x + ':' + f.z + ':' + f.dir
       // espaçar: não dois quadros na mesma célula nem colados
       if (usedCells.has(cellKey)) continue
@@ -428,7 +448,9 @@ export function buildLevelMeshes(lvl) {
       const w = 0.78, hH = 0.52
       const p = (s, y) => [cx + t[0] * s, y, cz + t[2] * s]
       const isEye = paintings.length === 2 && kp  // um quadro "especial" por nível
-      const bucket = isEye ? B.paintingEye : B.paintingMtn
+      // quadros decorativos — escolha determinística por célula (f.h), nunca o olho
+      const decor = [B.paintingMtn, B.paintingPortrait, B.paintingShip, B.paintingCorridor, B.paintingForest]
+      const bucket = isEye ? B.paintingEye : decor[f.h % decor.length]
       // moldura dourada atrás
       const fw = w + 0.09
       const pf = (s, y, push) => [cx + t[0] * s + n[0] * push, y, cz + t[2] * s + n[2] * push]
@@ -459,9 +481,14 @@ export function buildLevelMeshes(lvl) {
   push('panel', B.panel, { emissive: true })
   push('panelBad', B.panelBad, { emissive: true })
   push('frame', B.frame, { untextured: { baseColor: [0.72, 0.55, 0.22], metallic: 1.0, roughness: 0.32 } })
-  push('wood', Ped, { untextured: { baseColor: [0.40, 0.26, 0.145], metallic: 0.0, roughness: 0.55 } })
+  push('tableWood', Ped)
+  push('lampSteel', B.tableBrass, { untextured: { baseColor: [0.56, 0.44, 0.18], metallic: 0.95, roughness: 0.35 } })
   push('paintingEye', B.paintingEye)
   push('paintingMtn', B.paintingMtn)
+  push('paintingPortrait', B.paintingPortrait)
+  push('paintingShip', B.paintingShip)
+  push('paintingCorridor', B.paintingCorridor)
+  push('paintingForest', B.paintingForest)
   push('sign', doorSign, { emissive: true })
   push('lampHousing', B.lampHousing, { untextured: { baseColor: [0.14, 0.14, 0.16], metallic: 0.55, roughness: 0.62 } })
   push('lampSteel', B.lampSteel, { untextured: { baseColor: [0.34, 0.36, 0.40], metallic: 0.85, roughness: 0.45 } })
@@ -476,7 +503,7 @@ export function buildLevelMeshes(lvl) {
     lamps: lampSpots,
     spawn: { x: sp.x, y: 1.62, z: sp.z, yaw: lvl.spawn.z * Math.PI * 0 + Math.PI / 4 },
     exit: { x: ex.x, z: ex.z },
-    keyPos: kp ? { x: kp.x, y: 1.02, z: kp.z } : null,
+    keyPos: kp ? { x: kp.x, y: 0.80, z: kp.z } : null,
     door: { x: doorInfo.axisX ? doorInfo.dat : doorInfo.plane, z: doorInfo.axisX ? doorInfo.plane : doorInfo.dat, axisX: doorAxisX, normal: doorInfo.normal, plane: doorInfo.plane, dat: doorInfo.dat },
     fusebox: fuseboxPos,
     paintings,

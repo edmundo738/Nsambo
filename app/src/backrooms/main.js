@@ -12,7 +12,7 @@ import { pickVioletPos } from './game/violet.js'
 import { mat4 } from './engine/math.js'
 import { LEVEL1 } from './levels/level1.js'
 import { loadGLB } from './engine/gltf.js'
-import { flashLocal, viewmodelProj } from './game/viewmodel.js'
+import { flashLocal, viewmodelProj, FLASH_TIP } from './game/viewmodel.js'
 
 const $ = (id) => document.getElementById(id)
 const params = new URLSearchParams(window.location.search)
@@ -507,7 +507,7 @@ class Game {
     }
     let prompt = null, target = null
     if (!this.puzzle.keyTaken && built.keyPos) {
-      if (raySphere(built.keyPos.x, built.keyPos.y + 0.52, built.keyPos.z, 0.46, 2.5) &&
+      if (raySphere(built.keyPos.x, built.keyPos.y + 0.07, built.keyPos.z, 0.46, 2.5) &&
           player.hasLineOfSight(px, pz, built.keyPos.x, built.keyPos.z)) {
         prompt = '[E] APANHAR A CHAVE'; target = 'key'
       }
@@ -731,13 +731,10 @@ class Game {
     })()
     const keyModel = (() => {
       if (!built || !built.keyPos || this.puzzle?.keyTaken) return IDENTITY
-      const bob = Math.sin(time * 1.7) * 0.05
-      // GLB: deitado em XZ, pivot no fundo do aro → levanta-o e põe-no de pé
-      // chave na vertical (face virada ao jogador) a rodar devagar em redor de Y
+      // GLB deitado em XZ, pivot na base do aro — pousada no tampo da mesa, sem deriva nem flutuação
       return compose(
-        translateM(built.keyPos.x, built.keyPos.y + bob + 0.52, built.keyPos.z),
-        rotYTranslate(0, 0, 0, Math.sin(time * 0.7) * 0.6), // face permanente para o jogador
-        rotX(Math.PI / 2),
+        translateM(built.keyPos.x, built.keyPos.y + 0.012, built.keyPos.z),
+        rotYTranslate(0, 0, 0, 0.8),
         scaleM(10.0),
       )
     })()
@@ -750,6 +747,13 @@ class Game {
       return compose(invView, flashLocal())
     })()
     const vmView = (this.state === 'playing' && flashMatrix) ? mat4.multiply(mat4.create(), viewmodelProj(aspect), view) : null
+    const heldKeyMatrix = (() => {
+      if (this.state !== 'playing' || !this.modelsReady || !this.puzzle?.hasKey) return null
+      const invView = mat4.invert(view)
+      if (!invView) return null
+      // chave virada para a câmara (face do aro visível), ligeiramente inclinada — "na mão" sem mão
+      return compose(invView, translateM(-0.24, -0.142, -0.345), rotYTranslate(0, 0, 0, 0.22), rotX(Math.PI / 2 - 0.38), scaleM(3.1))
+    })()
     const stalkerMatrix = (() => {
       const st = this.stalker
       if (!st || !st.present) return null
@@ -778,8 +782,8 @@ class Game {
       return kp ? { x: kp.x + 0.46, z: kp.z + 0.34 } : null
     })()
     const viewProjFinal = mat4.multiply(mat4.create(), persp, view)
-    // projeção da sombra da lanterna — sem punho visível: nasce rente ao ombro da câmara
-    const spotPos = [camPos[0], camPos[1] - 0.14, camPos[2]]
+    // projeção da sombra da lanterna — nasce na PONTA da lanterna empunhada
+    const spotPos = flashMatrix ? transformVec(flashMatrix, FLASH_TIP) : [camPos[0], camPos[1] - 0.14, camPos[2]]
     const lookDir = this.state === 'title' ? [Math.sin(0.7), -0.06, -Math.cos(0.7)] : this.player.lookDir()
     const spotView = mat4.lookAt(spotPos, [spotPos[0] + lookDir[0], spotPos[1] + lookDir[1], spotPos[2] + lookDir[2]], [0, 1, 0])
     const spotProj = mat4.perspective((95 * Math.PI) / 180, 1.0, 0.25, 34)
@@ -789,7 +793,7 @@ class Game {
     const points = []
     if (built) {
       points.push({ pos: [built.exit.x, 2.1, built.exit.z], color: lvl.exitLight.color, radius: lvl.exitLight.radius })
-      if (built.keyPos && !this.puzzle?.keyTaken) points.push({ pos: [built.keyPos.x, built.keyPos.y - 0.05, built.keyPos.z], color: lvl.keyLight.color, radius: lvl.keyLight.radius })
+      if (built.keyPos && !this.puzzle?.keyTaken) points.push({ pos: [built.keyPos.x, built.keyPos.y + 0.42, built.keyPos.z], color: lvl.keyLight.color, radius: lvl.keyLight.radius })
       points.push({ pos: this.violetPos, color: lvl.violetLight.color, radius: lvl.violetLight.radius })
       const lamps = built.lamps ?? []
       const alive = lamps.filter(l => !l.bad)
@@ -875,6 +879,7 @@ class Game {
       pulse,
       noteMatrix: this._noteMatrix,
       flashMatrix,
+      heldKeyMatrix,
       viewmodelViewProj: vmView,
       dust: wantVol,
       torchUV,

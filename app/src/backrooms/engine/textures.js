@@ -43,19 +43,23 @@ export async function loadPBRSet(gl, base, { normalFlip = 1, flipY = true } = {}
 }
 
 export async function loadAllTextures(gl, basePath = '/textures/backrooms') {
-  const [wall, carpet, ceiling, eye, mountains, key, doorWood] = await Promise.all([
+  const [wall, carpet, ceiling, eye, mountains, portrait, ship, corridor, forest, key, doorWood] = await Promise.all([
     loadPBRSet(gl, `${basePath}/wallpaper-yellow`),
     loadPBRSet(gl, `${basePath}/carpet-tile`),
     loadPBRSet(gl, `${basePath}/ceiling-tile`),
     loadOne(gl, `${basePath}/painting-eye.jpg`, { srgb: true }),
     loadOne(gl, `${basePath}/painting-mountains.jpg`, { srgb: true }),
+    loadOne(gl, `${basePath}/painting-portrait.jpg`, { srgb: true }),
+    loadOne(gl, `${basePath}/painting-ship.jpg`, { srgb: true }),
+    loadOne(gl, `${basePath}/painting-corridor.jpg`, { srgb: true }),
+    loadOne(gl, `${basePath}/painting-forest.jpg`, { srgb: true }),
     loadPBRSet(gl, `${basePath}/key-iron`, { normalFlip: 1, flipY: false }),   // ferro envelhecido — NUNCA o amarelo da parede
     loadPBRSet(gl, `${basePath}/door-wood`, { normalFlip: 1 }),
   ])
   // sinal SAÍDA — tipografia gerada em canvas (não é textura de material pintada à mão)
   const sign = makeSignTexture(gl)
   const fuseFront = makeFuseboxTexture(gl)
-  return { wall, carpet, ceiling, eye, mountains, key, doorWood, sign, fuseFront }
+  return { wall, carpet, ceiling, eye, mountains, portrait, ship, corridor, forest, key, doorWood, sign, fuseFront }
 }
 
 // porta do quadro elétrico — aço escovado, raios, stencil âmbar, risco de perigo

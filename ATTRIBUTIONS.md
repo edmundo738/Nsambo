@@ -40,6 +40,13 @@ Fontes (itch.io, autor ATR0CITY): "PSX First-Person Arms - FREE GAME ASSETS",
 - Restantes 33 faixas da coleção permanecem **não integradas** em `game-assets/Misc. OST.zip`
   (proveniência/licença desconhecidas — não serão embedidas no build).
 
+## Quadros (pinturas do Lobby 0)
+
+- `assets/textures/backrooms/painting-eye.jpg`, `painting-mountains.jpg` — origem não documentada (ver secção Texturas).
+- `painting-portrait.jpg`, `painting-ship.jpg`, `painting-corridor.jpg`, `painting-forest.jpg` —
+  **geradas por IA pelo próprio projeto (2026-11-26)**, ao estilo dos mestres antigos (verniz rachado,
+  paleta escura), sob medida para o jogo. Sem restrições de uso (conteúdo do próprio repositório).
+
 ## Texturas (lobby)
 
 - `assets/textures/backrooms/` (wallpaper, carpete, teto, quadros, etc.) — as fontes

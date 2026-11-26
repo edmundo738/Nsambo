@@ -338,6 +338,11 @@ export class Renderer {
       this._bindMaterial({ ...this.mesh_flash, material: 'modelFlash', model: frame.flashMatrix })
       gl.bindVertexArray(this.mesh_flash.vao)
       gl.drawElements(gl.TRIANGLES, this.mesh_flash.indexCount, gl.UNSIGNED_INT, 0)
+      if (frame.heldKeyMatrix && this.mesh_key) {
+        this._bindMaterial({ ...this.mesh_key, material: 'modelKey', model: frame.heldKeyMatrix, hot: Math.min(1.4, (frame.keyHot ?? 0.6) + 0.3) })
+        gl.bindVertexArray(this.mesh_key.vao)
+        gl.drawElements(gl.TRIANGLES, this.mesh_key.indexCount, gl.UNSIGNED_INT, 0)
+      }
       gl.uniformMatrix4fv(this.uMain.uViewProj, false, frame.viewProj)
     }
 
@@ -485,6 +490,12 @@ export class Renderer {
         gl.uniform1f(u.uMetallic, m.untextured.metallic)
         gl.uniform1f(u.uRoughness, m.untextured.roughness)
         break
+      case 'tableWood':
+        bindSet(T.doorWood)
+        gl.uniform1f(u.uRoughness, 0.52)
+        gl.uniform1f(u.uMetallic, 0.0)
+        gl.uniform3f(u.uAlbedoTint, 0.92, 0.88, 0.82)
+        break
       case 'wood':
         gl.uniform1i(u.uUntextured, 1)
         gl.uniform3fv(u.uBaseColor, m.untextured.baseColor)
@@ -627,6 +638,30 @@ export class Renderer {
         gl.uniform1i(u.tAlbedo, 0)
         gl.uniform1i(u.uUntextured, 2)
         gl.uniform1f(u.uRoughness, 0.68)
+        break
+      case 'paintingPortrait':
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, T.portrait)
+        gl.uniform1i(u.tAlbedo, 0)
+        gl.uniform1i(u.uUntextured, 2)
+        gl.uniform1f(u.uRoughness, 0.6)
+        break
+      case 'paintingShip':
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, T.ship)
+        gl.uniform1i(u.tAlbedo, 0)
+        gl.uniform1i(u.uUntextured, 2)
+        gl.uniform1f(u.uRoughness, 0.66)
+        break
+      case 'paintingCorridor':
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, T.corridor)
+        gl.uniform1i(u.tAlbedo, 0)
+        gl.uniform1i(u.uUntextured, 2)
+        gl.uniform1f(u.uRoughness, 0.58)
+        break
+      case 'paintingForest':
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, T.forest)
+        gl.uniform1i(u.tAlbedo, 0)
+        gl.uniform1i(u.uUntextured, 2)
+        gl.uniform1f(u.uRoughness, 0.7)
         break
       default:
         bindSet(T.wall)
