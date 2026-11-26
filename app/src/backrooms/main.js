@@ -616,14 +616,14 @@ class Game {
     const doorModelL = (() => {
       if (!built) return IDENTITY
       const d = built.door, n = d.normal
-      if (d.axisX) return hingeDoor([d.dat - 0.97, 0, d.plane], doorAngle * n[2])
-      return hingeDoor([d.plane, 0, d.dat - 0.97], -doorAngle * n[0])
+      if (d.axisX) return hingeDoor([d.dat - 0.97, 0, d.plane], -doorAngle * n[2])
+      return hingeDoor([d.plane, 0, d.dat - 0.97], doorAngle * n[0])
     })()
     const doorModelR = (() => {
       if (!built) return IDENTITY
       const d = built.door, n = d.normal
-      if (d.axisX) return hingeDoor([d.dat + 0.97, 0, d.plane], -doorAngle * n[2])
-      return hingeDoor([d.plane, 0, d.dat + 0.97], doorAngle * n[0])
+      if (d.axisX) return hingeDoor([d.dat + 0.97, 0, d.plane], doorAngle * n[2])
+      return hingeDoor([d.plane, 0, d.dat + 0.97], -doorAngle * n[0])
     })()
     const keyModel = (() => {
       if (!built || !built.keyPos || this.puzzle?.keyTaken) return IDENTITY

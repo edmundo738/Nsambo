@@ -416,7 +416,8 @@ export class Renderer {
         gl.uniform1f(u.uRoughness, 0.95)
         gl.uniform1f(u.uMetallic, 0.0)
         gl.uniform3f(u.uEmissiveColor, 0.42, 1.0, 0.60)
-        gl.uniform1f(u.uEmissive, 1.45)
+        gl.uniform3f(u.uAlbedoTint, 0.62, 0.72, 0.62)   // difuso da lanterna rebenta o centro — escurece o albedo do portal
+        gl.uniform1f(u.uEmissive, 1.0)
         break
       case 'modelKey':
         bindSet(this.textures.key)
