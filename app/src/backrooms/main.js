@@ -1,5 +1,5 @@
 // NSAMBO ENGINE — THE BACKROOMS — Lobby 0 · ponto de entrada
-import { generateLevel, validateLevel, findPath } from './engine/wfc.js'
+import { generateLevel, validateLevel, findPath, OPEN } from './engine/wfc.js'
 import { buildLevelMeshes, CELL } from './engine/scene.js'
 import { Renderer } from './engine/renderer.js'
 import { Input } from './engine/input.js'
@@ -12,6 +12,7 @@ import { pickVioletPos } from './game/violet.js'
 import { mat4 } from './engine/math.js'
 import { LEVEL1 } from './levels/level1.js'
 import { loadGLB } from './engine/gltf.js'
+import { flashLocal, viewmodelProj } from './game/viewmodel.js'
 
 const $ = (id) => document.getElementById(id)
 const params = new URLSearchParams(window.location.search)
@@ -26,11 +27,11 @@ const QA_AT = params.has('at') ? params.get('at').split(',').map(Number) : null
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v)
 const QA_TOPDOWN = params.has('topdown')
 const QA_NOFLASH = params.has('noflash')
-const QA_ARMSONLY = params.has('armsonly')
 const QA_HASKEY = params.has('haskey')
 const QA_DOOROPEN = params.has('dooropen')   // QA: porta já destravada e aberta (validação visual do vão)
 const QA_PICKUP_MARKERS = params.has('pickupmarkers')   // QA: anéis debug sob os pickups — NUNCA no jogo
 const QA_POWER = params.has('power')   // QA: pré-visualizar o corredor da saída com o quadro restaurado
+const QA_NOWIN = params.has('nowin')   // QA: não disparar a vitória ao pisar a sala de saída (inspeção visual)
 const QA_QADEATH = params.has('qadeath')     // QA: ecrã de morte após 1.5 s (validação visual)
 const QA_STALKERDEMO = params.has('stalkerdemo')   // validação: stalker à frente do jogador, em espreita
 const QA_STALKER_DIST = (() => { const v = parseFloat(params.get('stalkerdist') ?? ''); return Number.isFinite(v) ? v : null })()   // QA: distância-alvo do spawn do stalker
@@ -127,10 +128,12 @@ class Game {
   async _loadModels() {
     const base = import.meta.env.BASE_URL + 'models/'
     try {
-      const [key, note] = await Promise.all([
+      const [key, note, flash] = await Promise.all([
         loadGLB(base + 'psx_house_key.glb'),
         loadGLB(base + 'psx_torn_note_page.glb'),
+        loadGLB(base + 'psx_flashlight.glb'),
       ])
+      await this.renderer.setModel('flash', flash)
       await this.renderer.setModel('key', key)
       try { await this.renderer.setModel('note', note) } catch (e) { console.warn('nota rasgada não carregou — omitida:', e) }
       // adereços novos — cada um falha sozinho sem derrubar os obrigatórios
@@ -189,6 +192,28 @@ class Game {
     if (!lvl) { seed = LEVEL1.seedDefault; this.seed = seed; lvl = generateLevel({ seed, size: LEVEL1.size }) }
     const v = validateLevel(lvl)
     if (!v.ok) console.error('nível inválido (não deveria acontecer):', v.errors)
+    // ── sala de saída: a célula de saída só é acessível pela porta ──
+    // sela todas as arestas da célula de saída com células abertas, menos o vão da porta
+    {
+      const size = lvl.size
+      const exitIdx = lvl.exit.z * size + lvl.exit.x
+      const path = findPath(lvl)
+      const prev = path && path.length >= 2 ? path[path.length - 2] : -1
+      const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]]
+      const extra = []
+      for (const [dx, dz] of dirs) {
+        const nx = lvl.exit.x + dx, nz = lvl.exit.z + dz
+        if (nx < 0 || nz < 0 || nx >= size || nz >= size) continue   // fora do mapa — colisão por defeito
+        const ni = nz * size + nx
+        if (ni === prev) continue                                    // o vão da porta fica livre
+        if (lvl.cells[ni] !== OPEN) continue                         // parede já sela
+        extra.push([Math.min(exitIdx, ni), Math.max(exitIdx, ni)])
+      }
+      if (extra.length) {
+        lvl.sealedEdges = [...(lvl.sealedEdges ?? []), ...extra]
+        console.log('sala de saída: arestas seladas —', extra.length)
+      }
+    }
     this.lvl = lvl
     this.built = buildLevelMeshes(lvl)
     this.renderer.setScene(this.built)
@@ -292,7 +317,7 @@ class Game {
       }
     }
     if (this.stalkerAssets) this._spawnStalker()   // seed nova → cérebro novo (determinístico)
-    this.hud.setObjective('APRENDA O QUARTO. ENCONTRE A CHAVE.')
+    this.hud.setObjective('EXPLORE A SALA. ENCONTRE A CHAVE.')
     this.hud.setKey(false)
     this.hud.setBattery(1)
     this.hud.setStamina(1, false)
@@ -589,7 +614,7 @@ class Game {
       this.doorProgress = Math.min(1, this.doorProgress + dt / 1.6)
     }
     // vitória — pisar a célula de saída
-    if (this.puzzle.doorOpen) {
+    if (this.puzzle.doorOpen && !QA_NOWIN) {
       const c = player.currentCell()
       if (c.x === lvl.exit.x && c.z === lvl.exit.z) this._win()
     }
@@ -716,8 +741,15 @@ class Game {
         scaleM(10.0),
       )
     })()
-    // braços do jogador (viewmodel): presos à câmara, fora do mundo
-    // — blend de poses por estado (respiração → alerta → apanhar/empurrar)
+    // lanterna em 1ª pessoa no canto inferior direito — SEM mãos/braços (pedido explícito).
+    // Vista própria de viewmodel (FOV largo) composta sobre a vista da câmara.
+    const flashMatrix = (() => {
+      if (this.state !== 'playing' || !this.modelsReady) return null
+      const invView = mat4.invert(view)
+      if (!invView) return null
+      return compose(invView, flashLocal())
+    })()
+    const vmView = (this.state === 'playing' && flashMatrix) ? mat4.multiply(mat4.create(), viewmodelProj(aspect), view) : null
     const stalkerMatrix = (() => {
       const st = this.stalker
       if (!st || !st.present) return null
@@ -756,7 +788,7 @@ class Game {
     const lvl = LEVEL1
     const points = []
     if (built) {
-      points.push({ pos: [built.exit.x + CELL / 2, 2.1, built.exit.z + CELL / 2], color: lvl.exitLight.color, radius: lvl.exitLight.radius })
+      points.push({ pos: [built.exit.x, 2.1, built.exit.z], color: lvl.exitLight.color, radius: lvl.exitLight.radius })
       if (built.keyPos && !this.puzzle?.keyTaken) points.push({ pos: [built.keyPos.x, built.keyPos.y - 0.05, built.keyPos.z], color: lvl.keyLight.color, radius: lvl.keyLight.radius })
       points.push({ pos: this.violetPos, color: lvl.violetLight.color, radius: lvl.violetLight.radius })
       const lamps = built.lamps ?? []
@@ -767,9 +799,14 @@ class Game {
         if (l.d > 90) continue
         points.push({ pos: [l.x, l.y, l.z], color: [0.92, 0.78, 0.52], radius: 4.8 })
       }
+      // lâmpada nua da sala de saída — só quando a porta abre (luz por baixo da porta)
+      if (this.doorProgress > 0.15) {
+        const flick = 0.80 + 0.20 * Math.sin(time * 13.7) * Math.sin(time * 7.1 + 2)
+        points.push({ pos: [built.exit.x, 2.36, built.exit.z], color: [2.1, 1.5 * flick, 0.78], radius: 5.5 })
+      }
       if (this._powerOn) {
         if (built.fusebox) points.push({ pos: [built.fusebox.x, 1.35, built.fusebox.z], color: [1.0, 0.70, 0.34], radius: 3.6 })
-        points.push({ pos: [built.exit.x + CELL / 2, 2.2, built.exit.z + CELL / 2], color: [1.0, 0.84, 0.48], radius: 8.0 })
+        points.push({ pos: [built.exit.x, 2.2, built.exit.z], color: [1.0, 0.84, 0.48], radius: 8.0 })
       }
     }
     // dying flicker
@@ -788,7 +825,7 @@ class Game {
         .sort((a, b) => a.d - b.d)
         .slice(0, 6)
       for (const { l } of aliveCones) {
-        cones.push({ apex: [l.x, l.y + 0.03, l.z], dir: [0, -1, 0], length: 2.72, radius: 1.45, color: [0.93, 0.80, 0.55], intensity: 0.30 })
+        cones.push({ apex: [l.x, l.y + 0.005, l.z], dir: [0, -1, 0], length: 2.72, radius: 1.45, color: [0.93, 0.80, 0.55], intensity: 0.30 })
       }
     }
     const pulse = this.player?.exhausted ? 1 : clamp((1 - (this.player?.stamina ?? 1)) * 0.6, 0, 1)
@@ -809,14 +846,14 @@ class Game {
       lightViewProj,
       cameraPos: camPos,
       time,
-      fog: QA_ARMSONLY ? [0.02, 0.02, 0.03] : lvl.fog.color,
-      fogDensity: QA_ARMSONLY ? 0.015 : (this._qaFog ?? lvl.fog.density),
-      hemiSky: QA_ARMSONLY ? [1.15, 1.12, 1.1] : lvl.hemi.sky,
-      hemiGround: QA_ARMSONLY ? [0.5, 0.48, 0.45] : lvl.hemi.ground,
-      hemiIntensity: QA_ARMSONLY ? 1.5 : lvl.hemi.intensity + (this._powerOn ? 0.12 : 0),
-      points: QA_ARMSONLY ? [] : points,
+      fog: lvl.fog.color,
+      fogDensity: this._qaFog ?? lvl.fog.density,
+      hemiSky: lvl.hemi.sky,
+      hemiGround: lvl.hemi.ground,
+      hemiIntensity: lvl.hemi.intensity + (this._powerOn ? 0.12 : 0),
+      points,
       spot: {
-        on: QA_ARMSONLY ? false : lightIsOn(this.flashlightOn, this.battery),
+        on: lightIsOn(this.flashlightOn, this.battery),
         pos: spotPos,
         dir: lookDir,
         color: lvl.spot.color,
@@ -837,6 +874,8 @@ class Game {
       cones,
       pulse,
       noteMatrix: this._noteMatrix,
+      flashMatrix,
+      viewmodelViewProj: vmView,
       dust: wantVol,
       torchUV,
       torchI,

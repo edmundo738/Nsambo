@@ -62,14 +62,14 @@ body { font-family: "Courier New", ui-monospace, Menlo, monospace; color: var(--
 #prompt.show { opacity: 1; }
 
 .meter { position: absolute; left: 26px; width: 210px; }
-.meter .label { font-size: 9px; color: var(--amber-dim); margin-bottom: 3px; letter-spacing: .3em; }
+.meter .label { font-size: 9px; color: var(--amber-dim); margin-bottom: 7px; letter-spacing: .3em; }
 .meter .track { height: 5px; background: rgba(255, 216, 148, 0.12); border: 1px solid rgba(255, 216, 148, 0.18); }
 .meter .fill { height: 100%; background: var(--amber); transition: width .1s linear; box-shadow: 0 0 8px rgba(255, 216, 148, .45); }
 .meter .fill.low { background: #ff8a3c; box-shadow: 0 0 10px rgba(255, 120, 50, .75); animation: low-batt 0.8s steps(2, jump-none) infinite; }
 @keyframes low-batt { 50% { opacity: .55 } }
-#stamina-wrap { bottom: 88px; }
+#stamina-wrap { bottom: 92px; }
 #stamina-fill.exhausted { background: #ff9c6b; box-shadow: 0 0 8px rgba(255, 156, 107, .5); }
-#battery-wrap { bottom: 46px; }
+#battery-wrap { bottom: 40px; }
 #battery-fill { background: #ffe9a8; }
 #battery-fill.low { background: #ff7d6b; box-shadow: 0 0 10px rgba(255, 125, 107, .6); animation: blink 1.1s steps(2) infinite; }
 @keyframes blink { 50% { opacity: .45; } }

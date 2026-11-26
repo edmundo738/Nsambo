@@ -331,6 +331,16 @@ export class Renderer {
     this._drawVolumetrics(frame)
 
 
+    // ── lanterna em 1ª pessoa (viewmodel): FOV largo, sem mãos ─────
+    if (frame.flashMatrix && this.mesh_flash && frame.viewmodelViewProj) {
+      gl.clear(gl.DEPTH_BUFFER_BIT)
+      gl.uniformMatrix4fv(this.uMain.uViewProj, false, frame.viewmodelViewProj)
+      this._bindMaterial({ ...this.mesh_flash, material: 'modelFlash', model: frame.flashMatrix })
+      gl.bindVertexArray(this.mesh_flash.vao)
+      gl.drawElements(gl.TRIANGLES, this.mesh_flash.indexCount, gl.UNSIGNED_INT, 0)
+      gl.uniformMatrix4fv(this.uMain.uViewProj, false, frame.viewProj)
+    }
+
     // ── passe de pós (dither + quantização + grão) ─────────────────
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, this.canvas.width, this.canvas.height)
@@ -438,6 +448,9 @@ export class Renderer {
         break
       case 'ceiling':
         bindSet(T.ceiling)
+        // teto NUNCA é preto puro — um fio de luz difusa (forro de lã branca)
+        gl.uniform3f(u.uEmissiveColor, 0.32, 0.315, 0.29)
+        gl.uniform1f(u.uEmissive, 0.38)
         gl.uniform1f(u.uRoughness, 0.9)
         break
       case 'panelBad':
@@ -455,6 +468,18 @@ export class Renderer {
         gl.uniform1f(u.uEmissive, 1.35)
         break
       case 'frame':
+        gl.uniform1i(u.uUntextured, 1)
+        gl.uniform3fv(u.uBaseColor, m.untextured.baseColor)
+        gl.uniform1f(u.uMetallic, m.untextured.metallic)
+        gl.uniform1f(u.uRoughness, m.untextured.roughness)
+        break
+      case 'bulb':
+        gl.uniform1i(u.uUntextured, 1)
+        gl.uniform3f(u.uBaseColor, 0.95, 0.82, 0.55)
+        gl.uniform3f(u.uEmissiveColor, 1.0, 0.72, 0.38)
+        gl.uniform1f(u.uEmissive, 1.6)
+        break
+      case 'cornice':
         gl.uniform1i(u.uUntextured, 1)
         gl.uniform3fv(u.uBaseColor, m.untextured.baseColor)
         gl.uniform1f(u.uMetallic, m.untextured.metallic)
@@ -483,16 +508,6 @@ export class Renderer {
         gl.uniform1f(u.uMetallic, m.untextured.metallic)
         gl.uniform1f(u.uRoughness, m.untextured.roughness)
         break
-      case 'exitGlow':
-        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, T.exitGlow)
-        gl.uniform1i(u.tAlbedo, 0)
-        gl.uniform1i(u.uUntextured, 2)   // albedo = gradiente radial (centro fundido → bordas escuras)
-        gl.uniform1f(u.uRoughness, 0.95)
-        gl.uniform1f(u.uMetallic, 0.0)
-        gl.uniform3f(u.uEmissiveColor, 0.42, 1.0, 0.60)
-        gl.uniform3f(u.uAlbedoTint, 0.62, 0.72, 0.62)   // difuso da lanterna rebenta o centro — escurece o albedo do portal
-        gl.uniform1f(u.uEmissive, 1.0)
-        break
       case 'modelKey':
         bindSet(this.textures.key)
         gl.uniform1f(u.uMetallic, 0.55)
@@ -507,8 +522,9 @@ export class Renderer {
         gl.uniform1i(u.uUntextured, 2)
         gl.uniform1f(u.uRoughness, 0.38)
         gl.uniform1f(u.uMetallic, 0.55)
-        gl.uniform3f(u.uEmissiveColor, 1.0, 0.88, 0.6)
-        gl.uniform1f(u.uEmissive, 0.12)
+        gl.uniform3f(u.uAlbedoTint, 1.35, 1.3, 1.2)
+        gl.uniform3f(u.uEmissiveColor, 1.0, 0.9, 0.72)
+        gl.uniform1f(u.uEmissive, 0.22)
         break
       }
       case 'modelNote': {
@@ -535,6 +551,15 @@ export class Renderer {
         if (m.tint) gl.uniform3f(u.uAlbedoTint, m.tint[0], m.tint[1], m.tint[2])
         break
       }
+      case 'fuseDoor': {
+        const t = this.textures.fuseFront
+        if (t) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t) }
+        gl.uniform1i(u.tAlbedo, 0)
+        gl.uniform1i(u.uUntextured, 2)
+        gl.uniform1f(u.uRoughness, 0.46)
+        gl.uniform1f(u.uMetallic, 0.34)
+        break
+      }
       case 'fusebox':
         gl.uniform1i(u.uUntextured, 1)
         gl.uniform3fv(u.uBaseColor, m.untextured.baseColor)
@@ -543,9 +568,9 @@ export class Renderer {
         break
       case 'fuseLamp':
         gl.uniform1i(u.uUntextured, 1)
-        gl.uniform3f(u.uBaseColor, 0.24, 0.09, 0.02)
+        gl.uniform3f(u.uBaseColor, 0.92, 0.52, 0.14)
         gl.uniform3f(u.uEmissiveColor, 1.0, 0.58, 0.15)
-        gl.uniform1f(u.uEmissive, 1.15)
+        gl.uniform1f(u.uEmissive, 1.35)
         break
       case 'modelStalker': {
         bindSet(this.textures.stalker)
@@ -608,7 +633,12 @@ export class Renderer {
     }
   }
 
-  setTextures(t) { this.textures = t }
+  setTextures(t) {
+    this.textures = t
+    // resolve o set PBR das signaturas: paintings etc. precisam de sets completos;
+    // a porta do quadro usa apenas albedo (textura própria)
+    if (!this.textures.fuseFront) this.textures.fuseFront = t.fuseFront ?? null
+  }
 }
 
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
