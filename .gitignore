@@ -36,3 +36,6 @@ desktop/release/
 # Blender headless (tools/setup-blender.sh) — binários locais, nunca commitados
 app/tools/.venv-*/
 app/tools/.blender-libs/
+
+# archives de build para download (não commitar)
+/Nsambo-backrooms-build-*.zip
