@@ -77,6 +77,7 @@ export function buildLevelMeshes(lvl) {
     frame: makeBucket(), wood: makeBucket(), baseboard: makeBucket(),
     sign: makeBucket(), paintingEye: makeBucket(), paintingMtn: makeBucket(),
     lampHousing: makeBucket(), lampSteel: makeBucket(),
+    fusebox: makeBucket(), fuseLamp: makeBucket(),
   }
   const lampSpots = []          // lâmpadas colocadas — main.js usa as 2 mais próximas como luzes pontuais reais
   const pillarCells = new Set(lvl.pillarCells ?? [])
@@ -264,6 +265,83 @@ export function buildLevelMeshes(lvl) {
     addCylinder(Ped, kp.x, kp.z, 0.92, 0.98, 0.27, 8)
   }
 
+  // ── quadro elétrico (interativo) — parede lateral do penúltimo troço do corredor da saída ──
+  const fuseboxPos = (() => {
+    const wallCandidates = []
+    if (path && path.length >= 3) {
+      for (let i = path.length - 2; i >= Math.max(0, path.length - 9); i--) {
+        const idx = path[i]
+        wallCandidates.push({ px: idx % size, pz: Math.floor(idx / size), next: path[i + 1] })
+      }
+    } else if (prevIdx >= 0) {
+      wallCandidates.push({ px: prevIdx % size, pz: Math.floor(prevIdx / size), next: -1 })
+    }
+    for (const { px, pz, next } of wallCandidates) {
+      const res = placeFusebox(px, pz, next)
+      if (res) return res
+    }
+    return null
+
+    function placeFusebox(px, pz, nextIdx) {
+    const y0 = 0.98, y1 = 1.62, hw = 0.34, D = 0.10
+    // direção de viagem desta célula para a seguinte (ou exit, se for o fim)
+    const nxt = nextIdx >= 0 ? nextIdx : (lvl.exit.z * size + lvl.exit.x)
+    const nx = nxt % size, nz = Math.floor(nxt / size)
+    const sides = []
+    if (nx !== px) {   // viajamos em x → paredes em z
+      sides.push({ axis: 'z', cell: pz + 1, at: (pz + 1) * CELL, face: -1 })
+      sides.push({ axis: 'z', cell: pz - 1, at: pz * CELL,       face: 1 })
+    } else if (nz !== pz) {  // viajamos em z → paredes em x
+      sides.push({ axis: 'x', cell: px + 1, at: (px + 1) * CELL, face: -1 })
+      sides.push({ axis: 'x', cell: px - 1, at: px * CELL,       face: 1 })
+    } else {           // célula virada para a saída — tenta qualquer parede lateral
+      sides.push({ axis: 'z', cell: pz + 1, at: (pz + 1) * CELL, face: -1 })
+      sides.push({ axis: 'z', cell: pz - 1, at: pz * CELL,       face: 1 })
+      sides.push({ axis: 'x', cell: px + 1, at: (px + 1) * CELL, face: -1 })
+      sides.push({ axis: 'x', cell: px - 1, at: px * CELL,       face: 1 })
+    }
+    for (const s of sides) {
+      const wx = s.axis === 'z' ? px : s.cell    // índice da célula vizinha
+      const wz = s.axis === 'z' ? s.cell : pz
+      if (cellAt(wx, wz) !== WALL) continue
+      const ax = s.axis === 'z' ? (px + 0.5) * CELL : s.at
+      const az = s.axis === 'z' ? s.at : (pz + 0.5) * CELL
+      const plate = 0.16, door = 0.34
+      if (s.axis === 'z') {
+        const zFace = s.at
+        if (s.face === -1) boxFaces(B.fusebox, [ax - door, y0, zFace - D], [ax + door, y1, zFace + 0.06])
+        else               boxFaces(B.fusebox, [ax - door, y0, zFace - 0.06], [ax + door, y1, zFace + D])
+        const zn = s.face === -1 ? zFace - D - 0.004 : zFace + D + 0.004
+        const n = s.face === -1 ? [0, 0, -1] : [0, 0, 1]
+        const t = s.face === -1 ? [-1, 0, 0, 0] : [1, 0, 0, 0]
+        const q = (x0, yA, x1, yB) => (s.face === -1
+          ? addQuad(B.fuseLamp, [x1, yA, zn], [x0, yA, zn], [x0, yB, zn], [x1, yB, zn], n, t, [0, 0], [1, 0], [1, 1], [0, 1])
+          : addQuad(B.fuseLamp, [x0, yA, zn], [x1, yA, zn], [x1, yB, zn], [x0, yB, zn], n, t, [0, 0], [1, 0], [1, 1], [0, 1]))
+        q(ax - plate, y1 - 0.26, ax + plate, y1 - 0.06)     // chapa âmbar
+        // parafusos/puxador em aço (dois filetes finos)
+        boxFaces(B.lampSteel, [ax - door + 0.05, y0 + 0.28, zn - (s.face === -1 ? 0.02 : -0.02)], [ax - door + 0.11, y0 + 0.40, zn + (s.face === -1 ? -0.02 : 0.02)])
+        boxFaces(B.lampSteel, [ax + door - 0.11, y0 + 0.28, zn - (s.face === -1 ? 0.02 : -0.02)], [ax + door - 0.05, y0 + 0.40, zn + (s.face === -1 ? -0.02 : 0.02)])
+        return { x: ax, y: (y0 + y1) / 2, z: zFace + (s.face === -1 ? -D : D), face: s.face, axis: 'z' }
+      } else {
+        const xFace = s.at
+        if (s.face === -1) boxFaces(B.fusebox, [xFace - D, y0, az - door], [xFace + 0.06, y1, az + door])
+        else               boxFaces(B.fusebox, [xFace - 0.06, y0, az - door], [xFace + D, y1, az + door])
+        const xn = s.face === -1 ? xFace - D - 0.004 : xFace + D + 0.004
+        const n = s.face === -1 ? [-1, 0, 0] : [1, 0, 0]
+        const t = s.face === -1 ? [0, 0, 1, 0] : [0, 0, -1, 0]
+        const q = (z0, yA, z1, yB) => (s.face === -1
+          ? addQuad(B.fuseLamp, [xn, yA, z1], [xn, yA, z0], [xn, yB, z0], [xn, yB, z1], n, t, [0, 0], [1, 0], [1, 1], [0, 1])
+          : addQuad(B.fuseLamp, [xn, yA, z0], [xn, yA, z1], [xn, yB, z1], [xn, yB, z0], n, t, [0, 0], [1, 0], [1, 1], [0, 1]))
+        q(az - plate, y1 - 0.26, az + plate, y1 - 0.06)
+        boxFaces(B.lampSteel, [xn - (s.face === -1 ? 0.02 : -0.02), y0 + 0.28, az - door + 0.05], [xn + (s.face === -1 ? -0.02 : 0.02), y0 + 0.40, az - door + 0.11])
+        boxFaces(B.lampSteel, [xn - (s.face === -1 ? 0.02 : -0.02), y0 + 0.28, az + door - 0.11], [xn + (s.face === -1 ? -0.02 : 0.02), y0 + 0.40, az + door - 0.05])
+        return { x: xFace + (s.face === -1 ? -D : D), y: (y0 + y1) / 2, z: az, face: s.face, axis: 'x' }
+      }
+    }
+    return null
+    }
+  })()
+
   // ── quadros nas paredes ─────────────────────────────────────────
   const paintings = []
   {
@@ -327,7 +405,9 @@ export function buildLevelMeshes(lvl) {
   push('paintingMtn', B.paintingMtn)
   push('sign', doorSign, { emissive: true })
   push('lampHousing', B.lampHousing, { untextured: { baseColor: [0.14, 0.14, 0.16], metallic: 0.55, roughness: 0.62 } })
-  push('lampSteel', B.lampSteel, { untextured: { baseColor: [0.58, 0.60, 0.64], metallic: 0.9, roughness: 0.32 } })
+  push('lampSteel', B.lampSteel, { untextured: { baseColor: [0.34, 0.36, 0.40], metallic: 0.85, roughness: 0.45 } })
+  push('fusebox', B.fusebox, { untextured: { baseColor: [0.15, 0.15, 0.16], metallic: 0.6, roughness: 0.55 } })
+  push('fuseLamp', B.fuseLamp, { emissive: true })
   push('exitGlow', exitGlow)
 
   return {
@@ -338,6 +418,7 @@ export function buildLevelMeshes(lvl) {
     exit: { x: ex.x, z: ex.z },
     keyPos: kp ? { x: kp.x, y: 1.02, z: kp.z } : null,
     door: { x: doorInfo.axisX ? doorInfo.dat : doorInfo.plane, z: doorInfo.axisX ? doorInfo.plane : doorInfo.dat, axisX: doorAxisX, normal: doorInfo.normal, plane: doorInfo.plane, dat: doorInfo.dat },
+    fusebox: fuseboxPos,
     paintings,
   }
 

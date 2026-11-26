@@ -254,6 +254,12 @@ export class Renderer {
       this.mesh_doorHwR ? { ...this.mesh_doorHwR, model: frame.doorMatrixR ?? IDENTITY, material: 'doorHw', untextured: { baseColor: [0.86, 0.68, 0.30], metallic: 0.9, roughness: 0.28 } } : null,
       ...(frame.keyVisible && this.mesh_key ? [{ ...this.mesh_key, model: frame.keyMatrix, material: 'modelKey', hot: frame.keyHot }] : []),
       ...(frame.noteMatrix && this.mesh_note ? [{ ...this.mesh_note, model: frame.noteMatrix, material: 'modelNote' }] : []),
+      ...(frame.fuseMatrix && this.mesh_fuse ? [{ ...this.mesh_fuse, model: frame.fuseMatrix, material: 'modelProp', tex: this.tex_fuse, emissive: 0.30, ec: [1.0, 0.86, 0.5], rough: 0.5 }] : []),
+      ...(frame.cassetteMatrix && this.mesh_cassette ? [{ ...this.mesh_cassette, model: frame.cassetteMatrix, material: 'modelProp', tex: this.tex_cassette, emissive: 0.35, ec: [0.75, 0.85, 1.0], rough: 0.55 }] : []),
+      ...(frame.crowbarMatrix && this.mesh_crowbar ? [{ ...this.mesh_crowbar, model: frame.crowbarMatrix, material: 'modelProp', tex: this.tex_crowbar, rough: 0.4, metallic: 0.75 }] : []),
+      ...(frame.medkitMatrix && this.mesh_medkit ? [{ ...this.mesh_medkit, model: frame.medkitMatrix, material: 'modelProp', tex: this.tex_medkit, emissive: 0.10, ec: [1.0, 0.32, 0.28], rough: 0.6 }] : []),
+      ...(frame.flashDeadMatrix && this.mesh_flashdead ? [{ ...this.mesh_flashdead, model: frame.flashDeadMatrix, material: 'modelProp', tex: this.tex_flashdead, rough: 0.45, metallic: 0.5 }] : []),
+      ...(this.mesh_marker ? (frame.markers ?? []).map(mm => ({ ...this.mesh_marker, model: mm, material: 'modelProp', tex: this.tex_marker, emissive: 0.95, ec: [1.0, 0.96, 0.86], rough: 0.7 })) : []),
     ].filter(Boolean)
     const all = [...this.meshes.map(m => {
       if (m.material !== 'panelBad') return { ...m, model: IDENTITY }
@@ -324,26 +330,6 @@ export class Renderer {
     // ── volumétricos aditivos (cones de foco + poeira) — após opacos, antes dos braços ──
     this._drawVolumetrics(frame)
 
-    // ── braços em 1ª pessoa (viewmodel): sempre visíveis ────────────
-    if (frame.armMatrix && this.mesh_arms) {
-      gl.clear(gl.DEPTH_BUFFER_BIT)
-      // viewmodel com projeção própria (FOV largo) — os braços saem pelos cantos inferiores
-      if (frame.viewmodelViewProj) gl.uniformMatrix4fv(this.uMain.uViewProj, false, frame.viewmodelViewProj)
-      this._bindMaterial({ ...this.mesh_arms, material: 'modelArms', model: frame.armMatrix })
-      gl.bindVertexArray(this.mesh_arms.vao)
-      gl.drawElements(gl.TRIANGLES, this.mesh_arms.indexCount, gl.UNSIGNED_INT, 0)
-      if (frame.flashMatrix && this.mesh_flash) {
-        this._bindMaterial({ ...this.mesh_flash, material: 'modelFlash', model: frame.flashMatrix })
-        gl.bindVertexArray(this.mesh_flash.vao)
-        gl.drawElements(gl.TRIANGLES, this.mesh_flash.indexCount, gl.UNSIGNED_INT, 0)
-      }
-      // chave empunhada — mesmo passe viewmodel (FOV largo), mesmo pique de profundidade
-      if (frame.heldKeyMatrix && this.mesh_key) {
-        this._bindMaterial({ ...this.mesh_key, material: 'modelKey', model: frame.heldKeyMatrix })
-        gl.bindVertexArray(this.mesh_key.vao)
-        gl.drawElements(gl.TRIANGLES, this.mesh_key.indexCount, gl.UNSIGNED_INT, 0)
-      }
-    }
 
     // ── passe de pós (dither + quantização + grão) ─────────────────
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
@@ -534,6 +520,33 @@ export class Renderer {
         gl.uniform1f(u.uMetallic, 0.0)
         break
       }
+      case 'modelProp': {
+        const t = m.tex ?? null
+        if (t) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t) }
+        gl.uniform1i(u.tAlbedo, 0)
+        gl.uniform1i(u.uUntextured, 2)
+        gl.uniform1f(u.uRoughness, m.rough ?? 0.62)
+        gl.uniform1f(u.uMetallic, m.metallic ?? 0.08)
+        if (m.emissive) {
+          const ec = m.ec ?? [1.0, 0.88, 0.66]
+          gl.uniform3f(u.uEmissiveColor, ec[0], ec[1], ec[2])
+          gl.uniform1f(u.uEmissive, m.emissive)
+        }
+        if (m.tint) gl.uniform3f(u.uAlbedoTint, m.tint[0], m.tint[1], m.tint[2])
+        break
+      }
+      case 'fusebox':
+        gl.uniform1i(u.uUntextured, 1)
+        gl.uniform3fv(u.uBaseColor, m.untextured.baseColor)
+        gl.uniform1f(u.uMetallic, m.untextured.metallic)
+        gl.uniform1f(u.uRoughness, m.untextured.roughness)
+        break
+      case 'fuseLamp':
+        gl.uniform1i(u.uUntextured, 1)
+        gl.uniform3f(u.uBaseColor, 0.24, 0.09, 0.02)
+        gl.uniform3f(u.uEmissiveColor, 1.0, 0.58, 0.15)
+        gl.uniform1f(u.uEmissive, 1.15)
+        break
       case 'modelStalker': {
         bindSet(this.textures.stalker)
         if (T.stalkerEmissive) {

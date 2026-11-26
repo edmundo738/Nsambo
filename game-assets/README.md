@@ -40,14 +40,20 @@ ou assets de jogos com copyright. Isso expõe o repo público e a conta — e eu
 3. Eu integro: os arquivos entram em `assets/` (ou viram instâncias no motor),
    ajusto loaders/áudio/posicionamento, rebuild, beta atualizada.
 
-## Estado de integração do motor (honesto, 2026-11)
+## Estado de integração do motor (honesto, 2026-11-26)
 - `textures/` — **direto**: o motor já lê sets PBR com esta convenção (textura/parede/chão/teto/quadros).
 - `decals/` — **direto**: plano com textura, mesmo esquema dos quadros (`painting-*`).
-- `ost/` — **fácil**: Web Audio do motor já faz drones; trigo para um `radio.js`/jukebox é trivial.
+- `ost/` — **parcial**: apenas "Over The Radio" integrada (`?ost=1`, opcional). As restantes 33 faixas
+  de `Misc. OST.zip` continuam **fora do build** por proveniência desconhecida.
 - `objects/` (3D) — **loader GLB próprio disponível desde 2026-11-25**
   (`app/src/backrooms/engine/gltf.js`: accessors, hierarquia TRS, 1 anim LINEAR/STEP,
-  skinning bake na CPU, texturas embebidas). Posicionamento à mão estilo viewmodel/prop
-  (igual aos quadros/porta). Já no jogo: arms viewmodel, PSX House Key (puzzle), PSX Flashlight.
+  skinning bake na CPU, texturas embebidas). Já integrados (2026-11-26):
+  PSX House Key (pedestal do puzzle), PSX Torn Note Page (nota de lore),
+  PSX Fuse (pega-e-instala no quadro elétrico do corredor da saída),
+  PSX Cassette Tape (lore), PSX Crowbar (lore), PSX Med Kit (revive fôlego),
+  PSX Flashlight suja (lore), quadro elétrico procedural (box + chapa âmbar emissiva).
+  O viewmodel de braços (arms_rig.glb) e a psx_flashlight.glb **foram removidos do jogo**
+  (decisão explícita 2026-11-26). `psx_pickup_marker.glb` existe só para QA (`?pickupmarkers=1`).
   Limites de sempre: estáticos ou TRS simples, < 5k tris, ≤ 1024², metros, origem no chão do objeto.
 
 ## Para modelos 3D: requisitos mínimos

@@ -9,10 +9,24 @@ algum destes assets e queres correção ou remoção, abre uma issue.
 
 Modelo                                     | Origem                              | Ficha                                        | Destino no jogo
 ------------------------------------------ | ----------------------------------- | -------------------------------------------- | -------------------------------------------
-PSX First-Person Arms (`arms_rig.glb`)     | ATR0CITY — psx-first-person-arms    | arms_01.png / arms_gloves_01.png / arms_uv.png | Viewmodel de 1ª pessoa (braços/mãos)        |
+PSX First-Person Arms (`arms_rig.glb`)     | ATR0CITY — psx-first-person-arms    | arms_01.png / arms_gloves_01.png / arms_uv.png | **Não usado** — viewmodel de braços removido em 2026-11-26; ficheiro mantido sem uso |
 PSX House Key (`psx_house_key.glb`)        | ATR0CITY — PSX Keys & Puzzle Items  | Free 5-piece sampler                          | Chave do puzzle (flutua acima do pedestal)  |
-PSX Torn Note Page (`psx_torn_note_page.glb`) | ATR0CITY — PSX Keys & Puzzle Items  | Free 5-piece sampler                          | Reservada — ainda não integrada             |
-PSX Flashlight (`psx_flashlight.glb`)      | ATR0CITY — PSX Tools & Melee        | Free 5-piece sampler                          | Lanterna segurada pelos braços (viewmodel)  |
+PSX Torn Note Page (`psx_torn_note_page.glb`) | ATR0CITY — PSX Keys & Puzzle Items  | Free 5-piece sampler                          | **Integrada (2026-11-26)** — prop de lore junto ao pedestal; [E] ler a nota |
+PSX Fuse (`psx_fuse.glb`)                  | ATR0CITY — PSX Keys & Puzzle Items  | Free 5-piece sampler                          | **Integrada (2026-11-26)** — apanhada do chão; instala-se no quadro elétrico do corredor da saída |
+PSX Cassette Tape (`psx_cassette_tape.glb`) | ATR0CITY — PSX Keys & Puzzle Items  | Free 5-piece sampler                          | **Integrada (2026-11-26)** — fita do anterior; [E] examina (lore: o quadro do fundo) |
+PSX Pickup Marker (`psx_pickup_marker.glb`) | ATR0CITY — PSX Keys & Puzzle Items  | Free 5-piece sampler                          | **Só QA** (`?pickupmarkers=1`) — anéis debug; nunca renderizados no jogo |
+PSX Crowbar (`psx_crowbar.glb`)            | ATR0CITY — PSX Tools & Melee        | Free 5-piece sampler                          | **Integrada (2026-11-26)** — pé-de-cabra abandonado; [E] examina (lore: riscos no chão) |
+PSX Flashlight (`psx_flashlight.glb`)      | ATR0CITY — PSX Tools & Melee        | Free 5-piece sampler                          | **Não usado** — acompanhava o viewmodel de braços (removido) |
+
+## Modelos 3D — packs RETROS / RETRO ASSETS LIBRARY (fornecidos via game-assets/)
+
+Sem licença ou README incluídos nos zips — usados com permissão do responsável
+pelo repositório (que forneceu os packs). Se és o autor, abre uma issue.
+
+Modelo                                     | Origem                              | Destino no jogo
+------------------------------------------ | ----------------------------------- | ------------------------------------
+PSX Med Kit (`psx_medkit.glb`, era `Med_1.glb`) | PSX MED PACK — RETRO ASSETS LIBRARY (GLB/Med_1.glb) | **Integrada (2026-11-26)** — kit de primeiros socorros no chão; [E] revive o fôlego |
+PSX Dirty Flashlight (`psx_flashlight_dead.glb`, era `FlashLight_Set_1_1.glb`) | FLASHLIGHT PACK 2 OF 6 — RETROS (GLB/FlashLight_Set_1_1.glb) | **Integrada (2026-11-26)** — lanterna abandonada e sem pilhas; [E] examina (lore: o anterior a ti) |
 
 Fontes (itch.io, autor ATR0CITY): "PSX First-Person Arms - FREE GAME ASSETS",
 "PSX Keys & Puzzle Items — Free Sampler", "PSX Tools & Melee — Free Sampler".
@@ -23,7 +37,8 @@ Fontes (itch.io, autor ATR0CITY): "PSX First-Person Arms - FREE GAME ASSETS",
   "Misc. OST.zip" fornecida pelo responsável do repositório via `game-assets/`.
   ⚠️ Artista/origem exatos desconhecidos — se fores o autor e quiseres crédito
   (ou remoção), abre uma issue. Uso: ambiente/títulos em loop, volume baixo.
-- Restantes 33 faixas da coleção permanecem **não integradas** em `game-assets/Misc. OST.zip`.
+- Restantes 33 faixas da coleção permanecem **não integradas** em `game-assets/Misc. OST.zip`
+  (proveniência/licença desconhecidas — não serão embedidas no build).
 
 ## Texturas (lobby)
 

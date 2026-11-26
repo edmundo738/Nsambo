@@ -7,12 +7,8 @@ import { GameAudio } from './engine/audio.js'
 import { Player } from './game/player.js'
 import { Hud } from './game/hud.js'
 import { createPuzzleState, pickKey, tryExitDoor } from './game/puzzle.js'
-import { VM, armsLocal, FLASH_TIP, viewmodelProj } from './game/viewmodel.js'
 import { toggleFlashlight, lightIsOn } from './game/flashlight.js'
 import { pickVioletPos } from './game/violet.js'
-import { poseWeights, blendPoses, pulse, rightHandIndices, rightHandCentroid, leftHandIndices, leftHandCentroid, leftArmIndices, applyHold, clamp01 } from './game/arms-poses.mjs'
-import { createLocoState, locoUpdate, computeSwingWeights, applyLocoSwing, forearmIndices, centroidOf, STRIDE, SWING } from './game/arms-anim.mjs'
-import { recomputeNormals, recomputeTangents } from './engine/meshmix.mjs'
 import { mat4 } from './engine/math.js'
 import { LEVEL1 } from './levels/level1.js'
 import { loadGLB } from './engine/gltf.js'
@@ -28,20 +24,13 @@ const QA_YAW = params.has('yaw') ? Number(params.get('yaw')) : null
 const QA_PITCH = params.has('pitch') ? Number(params.get('pitch')) : null
 const QA_AT = params.has('at') ? params.get('at').split(',').map(Number) : null
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v)
-const QA_VMARMS = params.get('vma')          // QA: força braços em idle|walk|run
-const QA_VMPHASE = (() => { const v = parseFloat(params.get('vmphase') ?? ''); return Number.isFinite(v) ? v : null })()
 const QA_TOPDOWN = params.has('topdown')
 const QA_NOFLASH = params.has('noflash')
 const QA_ARMSONLY = params.has('armsonly')
-const QA_ARMTIME = params.has('armtime') ? Number(params.get('armtime')) : null
-const QA_ARMANIM = params.has('armanim') ? params.get('armanim') : null
-const QA_ARMYAW = params.has('armyaw') ? Number(params.get('armyaw')) : null
-const QA_ARMY = params.has('army') ? Number(params.get('army')) : null
-const QA_ARMZ = params.has('armz') ? Number(params.get('armz')) : null
-const QA_ARMS = params.has('arms') ? Number(params.get('arms')) : null
-const QA_ARMX = params.has('armx') ? Number(params.get('armx')) : null
 const QA_HASKEY = params.has('haskey')
 const QA_DOOROPEN = params.has('dooropen')   // QA: porta já destravada e aberta (validação visual do vão)
+const QA_PICKUP_MARKERS = params.has('pickupmarkers')   // QA: anéis debug sob os pickups — NUNCA no jogo
+const QA_POWER = params.has('power')   // QA: pré-visualizar o corredor da saída com o quadro restaurado
 const QA_QADEATH = params.has('qadeath')     // QA: ecrã de morte após 1.5 s (validação visual)
 const QA_STALKERDEMO = params.has('stalkerdemo')   // validação: stalker à frente do jogador, em espreita
 const QA_STALKER_DIST = (() => { const v = parseFloat(params.get('stalkerdist') ?? ''); return Number.isFinite(v) ? v : null })()   // QA: distância-alvo do spawn do stalker
@@ -138,44 +127,23 @@ class Game {
   async _loadModels() {
     const base = import.meta.env.BASE_URL + 'models/'
     try {
-      const [arms, relaxA, relaxB, guard, grab, push, grabL, key, flash, note] = await Promise.all([
-        loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 0 }),
-        loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 0 }),
-        loadGLB(base + 'arms_rig.glb', { anim: 'relax', animTime: 2.0 }),
-        loadGLB(base + 'arms_rig.glb', { anim: 'knife_idle', animTime: 1.0 }),
-        loadGLB(base + 'arms_rig.glb', { anim: 'grab.R', animTime: 0.36 }),
-        loadGLB(base + 'arms_rig.glb', { anim: 'push.R', animTime: 0.32 }),
-        loadGLB(base + 'arms_rig.glb', { anim: 'grab.L', animTime: 0.36 }),
+      const [key, note] = await Promise.all([
         loadGLB(base + 'psx_house_key.glb'),
-        loadGLB(base + 'psx_flashlight.glb'),
         loadGLB(base + 'psx_torn_note_page.glb'),
       ])
-      this.armPoses = {
-        relaxA: relaxA.positions, relaxB: relaxB.positions, guard: guard.positions,
-        grab: grab.positions, push: push.positions, grabL: grabL.positions,
-      }
-      this._rHandIdx = rightHandIndices(relaxA.positions)
-      this._lHandIdx = leftHandIndices(relaxA.positions)
-      this._lArmIdx = leftArmIndices(relaxA.positions)
-      this._foreR = forearmIndices(relaxA.positions, 1)
-      this._foreL = forearmIndices(relaxA.positions, -1)
-      this._armIndices = arms.indices
-      this._armUvs = arms.uvs
-      this._armNormals = new Float32Array(relaxA.positions.length)
-      this._armTangents = new Float32Array((relaxA.positions.length / 3) * 4)
-      this._swingW = { w: new Float32Array(relaxA.positions.length / 3), side: new Float32Array(relaxA.positions.length / 3) }   // reutilizado por frame
-      this._loco = createLocoState()
-      this._lastRenderT = null
-      this._armBlend = new Float32Array(arms.positions.length)
-      this._armBlend.set(relaxA.positions)
-      recomputeNormals(this._armBlend, this._armIndices, this._armNormals)
-      recomputeTangents(this._armBlend, this._armNormals, this._armUvs, this._armIndices, this._armTangents)
-      await this.renderer.setDynamicModel('arms', arms)
       await this.renderer.setModel('key', key)
-      await this.renderer.setModel('flash', flash)
       try { await this.renderer.setModel('note', note) } catch (e) { console.warn('nota rasgada não carregou — omitida:', e) }
+      // adereços novos — cada um falha sozinho sem derrubar os obrigatórios
+      const extras = [
+        ['fuse', 'psx_fuse.glb'], ['cassette', 'psx_cassette_tape.glb'], ['crowbar', 'psx_crowbar.glb'],
+        ['medkit', 'psx_medkit.glb'], ['marker', 'psx_pickup_marker.glb'], ['flashdead', 'psx_flashlight_dead.glb'],
+      ]
+      for (const [name, file] of extras) {
+        try { await this.renderer.setModel(name, await loadGLB(base + file)) }
+        catch (e) { console.warn('adereço em falta:', file, e) }
+      }
       this.modelsReady = true
-      console.log('modelos carregados — armas:', arms.verts, 'verts /', arms.tris, 'tris · chave:', key.verts, 'verts /', key.tris, 'tris')
+      console.log('modelos carregados — chave:', key.verts, 'verts /', key.tris, 'tris')
     } catch (e) {
       console.error('falha ao carregar modelos:', e)
     }
@@ -242,6 +210,48 @@ class Game {
     this.startTime = performance.now()
     this.playTime = 0
     this._keyDiscovered = false; this._reachT = null; this._keyTargeted = false; this._keyT = QA_HASKEY ? -10 : null
+    // ── pickups semeáveis: escolhe células abertas por distância ao spawn ──
+    this._pickupPos = (() => {
+      if (!lvl || !lvl.cells) return null
+      const size = lvl.size
+      const sx = lvl.spawn.x, sz = lvl.spawn.z
+      const reserved = new Set()
+      const res = (x, z) => reserved.add(x + ',' + z)
+      res(sx, sz); res(lvl.exit.x, lvl.exit.z)
+      if (lvl.key) res(lvl.key.x, lvl.key.z)
+      if (this.violetPos) res(Math.floor(this.violetPos[0] / CELL), Math.floor(this.violetPos[2] / CELL))
+      const open = []
+      for (let z = 0; z < size; z++) for (let x = 0; x < size; x++) {
+        if (lvl.cells[z * size + x] !== 1) continue
+        if (reserved.has(x + ',' + z)) continue
+        const d = Math.hypot(x - sx, z - sz)
+        open.push({ x, z, d })
+      }
+      open.sort((a, b) => a.d - b.d)
+      const maxD = open.reduce((m, c) => Math.max(m, c.d), 1)
+      const picked = []
+      const claim = (frac) => {
+        const target = maxD * frac
+        let best = null, bestScore = Infinity
+        for (const c of open) {
+          if (picked.some(p => Math.hypot(p.x - c.x, p.z - c.z) < 3.2)) continue
+          const score = Math.abs(c.d - target)
+          if (score < bestScore) { bestScore = score; best = c }
+        }
+        if (best) picked.push(best)
+        return best ? { x: best.x * CELL + CELL / 2, z: best.z * CELL + CELL / 2 } : null
+      }
+      return {
+        medkit: claim(0.22),
+        cassette: claim(0.38),
+        fuse: claim(0.55),
+        crowbar: claim(0.68),
+        flashdead: claim(0.80),
+      }
+    })()
+    this._fuseTaken = false; this._cassetteTaken = false; this._medkitTaken = false
+    this._fuseInstalled = false; this._powerOn = false; this._jumpscared = false
+    if (QA_POWER) { this._fuseInstalled = true; this._powerOn = true }
     // página rasgada de lore junto ao pedestal — prop estático, sem interação
     this._noteMatrix = (() => {
       const kp = this.built?.keyPos
@@ -485,6 +495,27 @@ class Game {
       prompt = this.puzzle.hasKey ? '[E] ABRIR A SAÍDA' : 'PORTA TRANCADA'
       target = 'door'
     }
+    // ── pickups e quadro elétrico ──
+    const pickups = this._pickupPos
+    const notePos = built?.keyPos ? { x: built.keyPos.x + 0.46, z: built.keyPos.z + 0.34 } : null
+    if (!target && pickups) {
+      const candidates = [
+        { id: 'medkit', pos: pickups.medkit, r: 0.62, ok: !this._medkitTaken, prompt: '[E] USAR O KIT DE PRIMEIROS SOCORROS' },
+        { id: 'fuse', pos: pickups.fuse, r: 0.56, ok: !this._fuseTaken, prompt: '[E] APANHAR O FUSÍVEL' },
+        { id: 'cassette', pos: pickups.cassette, r: 0.56, ok: !this._cassetteTaken, prompt: '[E] EXAMINAR A CASSETE' },
+        { id: 'crowbar', pos: pickups.crowbar, r: 0.62, ok: true, prompt: '[E] EXAMINAR O PÉ-DE-CABRA' },
+        { id: 'flashdead', pos: pickups.flashdead, r: 0.62, ok: true, prompt: '[E] EXAMINAR A LANTERNA VELHA' },
+        { id: 'note', pos: notePos, r: 0.62, ok: true, prompt: '[E] LER A NOTA' },
+        { id: 'fusebox', pos: built.fusebox ? { x: built.fusebox.x, z: built.fusebox.z } : null, r: 0.85, ok: !this._fuseInstalled,
+          prompt: this._fuseTaken ? '[E] INSTALAR O FUSÍVEL' : '[E] EXAMINAR O QUADRO ELÉTRICO' },
+      ]
+      for (const c of candidates) {
+        if (!c.ok || !c.pos) continue
+        if (raySphere(c.pos.x, c.pos.y ?? 0.35, c.pos.z, c.r, 2.4)) {
+          prompt = c.prompt; target = c.id; break
+        }
+      }
+    }
     this._keyTargeted = target === 'key'
     const chEl = $('crosshair'); if (chEl) chEl.classList.toggle('active', !!target)
     this.hud.prompt(prompt)
@@ -492,6 +523,38 @@ class Game {
       if (target === 'key') {
         // o GESTO começa já; a posse só é confirmada no contacto (ver bloco abaixo)
         if (this._keyAnimT == null) { this._reachT = time; this._keyAnimT = time }
+      } else if (target === 'medkit') {
+        this._medkitTaken = true
+        this.player.stamina = 1; this.player.exhausted = false
+        this.hud.toast('PRIMEIROS SOCORROS — O FÔLEGO VOLTOU', 2.6)
+        this.audio.uiTick()
+      } else if (target === 'fuse') {
+        this._fuseTaken = true
+        this.hud.toast('FUSÍVEL ADQUIRIDO — 30A / 250V', 2.6)
+        this.audio.keyPickup()
+      } else if (target === 'cassette') {
+        this._cassetteTaken = true
+        this.hud.toast('CASSETE — «EU ACENDI O QUADRO DO FUNDO. A LUZ PERTO DA SAÍDA SEMPRE VOLTA. NÃO DEIXES O ESCURO TE ENGOLIR.»', 5.2)
+        this.audio.uiTick()
+      } else if (target === 'flashdead') {
+        this.hud.toast('LANTERNA VELHA — PILHAS GASTAS. O ANTERIOR A TI TAMBÉM TINHA MEDO DO ESCURO.', 4.2)
+        this.audio.uiTick()
+      } else if (target === 'crowbar') {
+        this.hud.toast('PÉ-DE-CABRA — RISCOS IDÊNTICOS NO CHÃO POR TODO O MAZE. MUITO ANTIGOS.', 4.0)
+        this.audio.uiTick()
+      } else if (target === 'note') {
+        this.hud.toast('NOTA — «NÃO CONFIES NA ESCURIDÃO. O DOURADO CHAMA.»', 4.0)
+        this.audio.uiTick()
+      } else if (target === 'fusebox') {
+        if (this._fuseTaken) {
+          this._fuseInstalled = true; this._powerOn = true
+          this.hud.toast('O QUADRO ZUNE — ALGO ACENDEU NO FUNDO DO MAZE', 3.6)
+          this.audio.ballastBuzz()
+          this.audio.doorUnlock()
+        } else {
+          this.hud.toast('QUADRO ELÉTRICO — VAZIO. FALTA UM FUSÍVEL 30A.', 3.2)
+          this.audio.uiTick()
+        }
       } else if (target === 'door') {
         const { state, result } = tryExitDoor(this.puzzle)
         this._noisePulse = Math.max(this._noisePulse, 0.85)
@@ -560,7 +623,10 @@ class Game {
       case 'spawn': case 'respawn': this.audio.stalkerMurmur(0.5); break
       case 'heard': this.audio.stalkerMurmur(0.34); break
       case 'sight-stalk': this.audio.stalkerSting(0.5); break
-      case 'sight-hunt': case 'stalk-hunt': this.audio.stalkerSting(1.0); break
+      case 'sight-hunt': case 'stalk-hunt':
+        this.audio.stalkerSting(1.0)
+        this._jumpscared = true
+        break
       case 'pounce':
         this._die('ELE VIU VOCÊ.')
         break
@@ -652,42 +718,6 @@ class Game {
     })()
     // braços do jogador (viewmodel): presos à câmara, fora do mundo
     // — blend de poses por estado (respiração → alerta → apanhar/empurrar)
-    const reach = this._reachT != null ? Math.sin(Math.PI * Math.min(1, (time - this._reachT) / 0.42)) : 0
-    const dtR = this._lastRenderT == null ? 1 / 60 : Math.min(0.05, Math.max(0.001, time - this._lastRenderT))
-    this._lastRenderT = time
-    if (this.armPoses && this.state === 'playing') {
-      const grabPulse = this._reachT != null ? pulse(time - this._reachT, 0.6, 0.18) : 0
-      const pushPulse = this._pushT != null ? pulse(time - this._pushT, 0.8, 0.28) : 0
-      const breath = 0.5 + 0.5 * Math.sin(time * 1.35)
-      // FSM idle|walk|run com histerese — a fase avança por DISTÂNCIA real (cam.stepped), não pelo relógio
-      if (QA_VMARMS) {
-        this._loco.state = QA_VMARMS === 'run' ? 'run' : QA_VMARMS === 'walk' ? 'walk' : 'idle'
-        this._loco.amp = QA_VMARMS === 'idle' ? 0 : SWING[this._loco.state]
-        if (QA_VMPHASE != null) this._loco.phase = QA_VMPHASE
-      }
-      const loco = locoUpdate(this._loco, this._locoDist ?? 0, QA_VMARMS ? (this._loco.state === 'run' ? 3.0 : this._loco.state === 'walk' ? 1.5 : 0) : this._armSpeed, dtR)
-      const w = poseWeights({ speed: this._armSpeed, breath, grab: grabPulse, push: pushPulse })
-      blendPoses(this._armBlend, this.armPoses, w)
-      const hold = this.puzzle?.hasKey ? clamp01((time - (this._keyT ?? time)) / 0.4) : 0
-      if (hold > 0) applyHold(this._armBlend, this._lArmIdx, this.armPoses.grabL, hold * 0.9)
-      // ciclo de locomoção: péndulo frente/trás + balanço lateral + bob — L/R em contrafase
-      applyLocoSwing(this._armBlend, computeSwingWeights(this._armBlend, this._swingW.w, this._swingW.side), loco.phase, loco.amp)
-      // VM-006: posições mudaram → normais/tangentes recomputadas no CPU e subidas juntas
-      recomputeNormals(this._armBlend, this._armIndices, this._armNormals)
-      recomputeTangents(this._armBlend, this._armNormals, this._armUvs, this._armIndices, this._armTangents)
-      this.renderer.updateDynamic('arms', this._armBlend, this._armNormals, this._armTangents)
-      const viewMat = compose(translateM(this._swayX, this._swayY - (this.player.crouch ? 0.045 : 0), 0), armsLocal(reach))
-      const handRig = rightHandCentroid(this._armBlend, this._rHandIdx)
-      const foreRigR = centroidOf(this._armBlend, this._foreR, [handRig[0], handRig[1] + 0.19, handRig[2] + 0.04])
-      this._handView = transformVec(viewMat, handRig)
-      this._foreViewR = transformVec(viewMat, foreRigR)
-      if (this._lHandIdx.length) {
-        const handRigL = leftHandCentroid(this._armBlend, this._lHandIdx)
-        const foreRigL = centroidOf(this._armBlend, this._foreL, [handRigL[0], handRigL[1] + 0.19, handRigL[2] + 0.04])
-        this._handViewL = transformVec(viewMat, handRigL)
-        this._foreViewL = transformVec(viewMat, foreRigL)
-      }
-    }
     const stalkerMatrix = (() => {
       const st = this.stalker
       if (!st || !st.present) return null
@@ -695,48 +725,29 @@ class Game {
       return compose(translateM(m.x, m.y, m.z), rotYTranslate(0, 0, 0, m.yaw), scaleM(1))
     })()
     if (this.stalker && this.stalker.present) this.renderer.updateDynamic('stalker', this.stalker.positions, this.stalker.normals, this.stalker.tangents)
-    const armModel = (() => {
-      if (!this.modelsReady) return null
-      if (QA_ARMSONLY) {
-        // QA: câmara no spawn a olhar para os braços expostos num corredor aberto
-        const sc = this.lvl ? { x: this.lvl.spawn.x * CELL + CELL / 2, z: this.lvl.spawn.z * CELL + CELL / 2 } : { x: 40, z: 40 }
-        camPos = [sc.x, 1.5, sc.z + 2.6]
-        view = mat4.lookAt(camPos, [sc.x, 1.0, sc.z], [0, 1, 0])
-        return compose(
-          translateM(sc.x, QA_ARMY ?? 1.15, sc.z),
-          rotYTranslate(0, 0, 0, QA_ARMYAW ?? Math.PI),
-          scaleM(QA_ARMS ?? 0.62),
-          translateM(0, -1.38, 0),
-        )
-      }
-      if (this.state !== 'playing') return null
-      const invView = mat4.invert(view)
-      if (!invView) return null
-      return compose(invView, translateM(this._swayX, this._swayY, 0), armsLocal(reach))
-    })()
-    // lanterna presa às mãos — eixo do modelo (X, lente para +X) apontado a -Z
-    const flashModel = (() => {
-      if (this.state !== 'playing' || !this.modelsReady) return null
-      const invView = mat4.invert(view)
-      if (!invView) return null
-      const hv = this._handView ?? [0.273, -0.166, -0.361]
-      const fa = this._foreViewR ? [hv[0] - this._foreViewR[0], hv[1] - this._foreViewR[1], hv[2] - this._foreViewR[2]] : null
-      const gripYaw = fa ? clamp(Math.atan2(fa[0], -fa[2]), -0.4, 0.4) : 0
-      return compose(invView, translateM(hv[0] - 0.008, hv[1] - 0.005, hv[2] - 0.03), rotYTranslate(0, 0, 0, -Math.PI / 2 - 0.06 + gripYaw * 0.55), rotX(-0.14), scaleM(0.72))
-    })()
-    const heldKeyModel = (() => {
-      if (this.state !== 'playing' || !this.modelsReady || !this.puzzle?.hasKey) return null
-      const invView = mat4.invert(view)
-      if (!invView) return null
-      const hv = this._handViewL ?? [-0.273, -0.166, -0.361]
-      const fa = this._foreViewL ? [hv[0] - this._foreViewL[0], hv[1] - this._foreViewL[1], hv[2] - this._foreViewL[2]] : null
-      const gripYaw = fa ? clamp(Math.atan2(fa[0], -fa[2]), -0.45, 0.45) : 0
-      // chave deitada na palma, dentes para a frente, anel para o punho
-      return compose(invView, translateM(hv[0] + 0.005, hv[1] + 0.03, hv[2] + 0.012), rotYTranslate(0, 0, 0, 0.5 + gripYaw * 0.5), rotZ(Math.PI / 2 - 0.35), scaleM(1.5))
+    // ── adereços novos (fusível, cassetes, kits, decor) — pivôs no chão ──
+    // cada GLB tem dimensões próprias em metros reais; scale/lift/rot são por adereço
+    const pickups = this._pickupPos
+    const yawHash = (p) => (((p.x * 73856093) ^ (p.z * 19349663)) >>> 0) / 4294967296 * Math.PI * 2
+    const flatProp = (p, s, lift, extraYaw = 0) => p ? compose(translateM(p.x, lift, p.z), rotYTranslate(0, 0, 0, yawHash(p) + extraYaw), scaleM(s)) : null
+    const fuseMatrix = (!this._fuseTaken && pickups?.fuse) ? flatProp(pickups.fuse, 3.4, 0.035) : null
+    const cassetteMatrix = (!this._cassetteTaken && pickups?.cassette) ? flatProp(pickups.cassette, 2.4, 0.014, 0.4) : null
+    const crowbarMatrix = pickups?.crowbar ? flatProp(pickups.crowbar, 1.3, 0.016, 0.9) : null
+    const medkitMatrix = (!this._medkitTaken && pickups?.medkit) ? flatProp(pickups.medkit, 0.030, 0.080, 0.2) : null
+    const flashDeadMatrix = pickups?.flashdead ? (pickups.flashdead ? compose(translateM(pickups.flashdead.x, 0.038, pickups.flashdead.z), rotYTranslate(0, 0, 0, yawHash(pickups.flashdead) + 1.1), rotX(Math.PI / 2), scaleM(1.9)) : null) : null
+    const _marker = (p) => p ? compose(translateM(p.x, 0.006, p.z), scaleM(1.25)) : null
+    const markers = QA_PICKUP_MARKERS ? [
+      ...((!this._fuseTaken && pickups?.fuse) ? [_marker(pickups.fuse)] : []),
+      ...((!this._cassetteTaken && pickups?.cassette) ? [_marker(pickups.cassette)] : []),
+      ...((!this._medkitTaken && pickups?.medkit) ? [_marker(pickups.medkit)] : []),
+    ] : []
+    const notePos = (() => {
+      const kp = built?.keyPos
+      return kp ? { x: kp.x + 0.46, z: kp.z + 0.34 } : null
     })()
     const viewProjFinal = mat4.multiply(mat4.create(), persp, view)
-    // projeção da sombra da lanterna — nasce na PONTA da lanterna em punho
-    const spotPos = flashModel ? transformVec(flashModel, FLASH_TIP) : [camPos[0], camPos[1] - 0.14, camPos[2]]
+    // projeção da sombra da lanterna — sem punho visível: nasce rente ao ombro da câmara
+    const spotPos = [camPos[0], camPos[1] - 0.14, camPos[2]]
     const lookDir = this.state === 'title' ? [Math.sin(0.7), -0.06, -Math.cos(0.7)] : this.player.lookDir()
     const spotView = mat4.lookAt(spotPos, [spotPos[0] + lookDir[0], spotPos[1] + lookDir[1], spotPos[2] + lookDir[2]], [0, 1, 0])
     const spotProj = mat4.perspective((95 * Math.PI) / 180, 1.0, 0.25, 34)
@@ -755,6 +766,10 @@ class Game {
       for (const { l } of alive) {
         if (l.d > 90) continue
         points.push({ pos: [l.x, l.y, l.z], color: [0.92, 0.78, 0.52], radius: 4.8 })
+      }
+      if (this._powerOn) {
+        if (built.fusebox) points.push({ pos: [built.fusebox.x, 1.35, built.fusebox.z], color: [1.0, 0.70, 0.34], radius: 3.6 })
+        points.push({ pos: [built.exit.x + CELL / 2, 2.2, built.exit.z + CELL / 2], color: [1.0, 0.84, 0.48], radius: 8.0 })
       }
     }
     // dying flicker
@@ -791,7 +806,6 @@ class Game {
     const torchI = lightIsOn(this.flashlightOn, this.battery) ? 0.30 * flicker : 0
     this.renderer.render({
       viewProj: viewProjFinal,
-      viewmodelViewProj: this.state === 'playing' ? mat4.multiply(mat4.create(), viewmodelProj(aspect), view) : null,
       lightViewProj,
       cameraPos: camPos,
       time,
@@ -799,7 +813,7 @@ class Game {
       fogDensity: QA_ARMSONLY ? 0.015 : (this._qaFog ?? lvl.fog.density),
       hemiSky: QA_ARMSONLY ? [1.15, 1.12, 1.1] : lvl.hemi.sky,
       hemiGround: QA_ARMSONLY ? [0.5, 0.48, 0.45] : lvl.hemi.ground,
-      hemiIntensity: QA_ARMSONLY ? 1.5 : lvl.hemi.intensity,
+      hemiIntensity: QA_ARMSONLY ? 1.5 : lvl.hemi.intensity + (this._powerOn ? 0.12 : 0),
       points: QA_ARMSONLY ? [] : points,
       spot: {
         on: QA_ARMSONLY ? false : lightIsOn(this.flashlightOn, this.battery),
@@ -815,10 +829,7 @@ class Game {
       doorMatrixR: doorModelR,
       keyMatrix: keyModel,
       keyVisible: !!built && !!built.keyPos && !this.puzzle?.keyTaken,
-      heldKeyMatrix: heldKeyModel,
       keyHot: this._keyTargeted ? 1.0 + 0.35 * Math.sin(time * 7) : 0.6,
-      armMatrix: armModel,
-      flashMatrix: flashModel,
       stalkerMatrix,
       grain: lvl.grain,
       vignette: lvl.vignette,
@@ -829,6 +840,12 @@ class Game {
       dust: wantVol,
       torchUV,
       torchI,
+      fuseMatrix,
+      cassetteMatrix,
+      crowbarMatrix,
+      medkitMatrix,
+      flashDeadMatrix,
+      markers,
     })
   }
 }
