@@ -18,6 +18,12 @@ PSX Pickup Marker (`psx_pickup_marker.glb`) | ATR0CITY — PSX Keys & Puzzle Ite
 PSX Crowbar (`psx_crowbar.glb`)            | ATR0CITY — PSX Tools & Melee        | Free 5-piece sampler                          | **Integrada (2026-11-26)** — pé-de-cabra abandonado; [E] examina (lore: riscos no chão) |
 PSX Flashlight (`psx_flashlight.glb`)      | ATR0CITY — PSX Tools & Melee        | Free 5-piece sampler                          | **Não usado** — acompanhava o viewmodel de braços (removido) |
 
+## Modelo — stalker definitivo (fornecido via game-assets/)
+
+Modelo                                     | Origem                              | Destino no jogo
+------------------------------------------ | ----------------------------------- | ------------------------------------
+Stalker definitivo (`stalker.glb`)         | `game-assets/white_mesh.glb`, commit 329a5b33 — fornecido pelo responsável pelo repositório; malha "white" (sem textura) derivada com assistência de IA (família Hunyuan3D, se aplicável — a Hunyuan 3D 2.0 Community License não se aplica à UE/Reino Unido/Coreia e a Tencent não reivindica direitos sobre os outputs; Angola está fora dessa restrição) | **Integrado (2026-11-26)** — stalker do jogo, substituído in-place: pele PBR própria (albedo pálido gerado por IA 2026-11-26, AO assado por ray-trace, normais faux-Sobel, roughness por luminância), emissive de olhos em brasa; deformação 100% procedural (sem rig esquelético)
+
 ## Modelos 3D — packs RETROS / RETRO ASSETS LIBRARY (fornecidos via game-assets/)
 
 Sem licença ou README incluídos nos zips — usados com permissão do responsável
