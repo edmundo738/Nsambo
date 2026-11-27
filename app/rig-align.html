@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NSAMBO · Rig-Align — editor de articulações</title>
+  <meta name="description" content="Ferramenta de rigging do NSAMBO: posiciona os pontos de articulação (A…I2) sobre a imagem ou o modelo 3D e exporta as coordenadas matemáticas em JSON." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%230a0805'/><circle cx='50' cy='50' r='16' fill='%23ffd894'/></svg>" />
+  <link rel="stylesheet" href="/src/rig-align/rig-align.css" />
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <div>
+        <h1>NSAMBO <em>rig-align</em></h1>
+        <p>Editor de articulações — posiciona as bolinhas A…I2 e exporta a matemática</p>
+      </div>
+    </div>
+    <div class="actions">
+      <input id="model-name" type="text" value="stalker" spellcheck="false" title="Nome do ficheiro de dados (rig-data/<nome>.json)" />
+      <button id="btn-save" class="primary" title="Gravar JSON direto no workspace (rig-data/<nome>.json)">💾 Guardar no workspace</button>
+      <button id="btn-copy" title="Copiar o JSON atual para a área de transferência">📋 Copiar dados</button>
+      <button id="btn-download" title="Descarregar como ficheiro .json">⬇ Exportar .json</button>
+    </div>
+  </header>
+
+  <nav id="tabs">
+    <button data-tab="tab-2d" class="active">2D · Imagem / Grelha / Silhueta</button>
+    <button data-tab="tab-3d">3D · Modelo GLB</button>
+    <button data-tab="tab-legend">Esquema A…I2</button>
+    <span id="save-status"></span>
+  </nav>
+
+  <main id="layout">
+    <!-- ══════════ TAB 2D ══════════ -->
+    <section id="tab-2d" class="tab-panel active">
+      <div class="canvas-wrap">
+        <canvas id="cv-2d" width="860" height="860"></canvas>
+        <div class="canvas-hud" id="hud-2d">arrastar · clique seleciona · setas afinar (Shift = ×10)</div>
+      </div>
+      <aside class="side">
+        <div class="box">
+          <h2>Fundo de referência</h2>
+          <div class="bg-row">
+            <label class="file-btn">Carregar imagem…<input id="bg-file" type="file" accept="image/*" hidden /></label>
+            <button id="bg-grid" class="toggle on">Grelha</button>
+            <button id="bg-silhouette" class="toggle">Silhueta</button>
+            <button id="bg-none" class="toggle">Escuro</button>
+          </div>
+          <div class="bg-row presets" id="bg-presets">
+            <span class="mini">Presets do render:</span>
+            <button data-preset="/rig-align/preset-frente.png">Frente</button>
+            <button data-preset="/rig-align/preset-costas.png">Costas</button>
+            <button data-preset="/rig-align/preset-esq.png">Lateral E</button>
+          </div>
+          <div id="bg-info" class="mini"></div>
+        </div>
+        <div class="box grow">
+          <h2>Articulações</h2>
+          <div id="joint-list" class="joint-list"></div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- ══════════ TAB 3D ══════════ -->
+    <section id="tab-3d" class="tab-panel">
+      <div class="canvas-wrap">
+        <canvas id="cv-3d"></canvas>
+        <div class="canvas-hud" id="hud-3d">arrastar esfera · orbitar com o botão direito · scroll = zoom</div>
+      </div>
+      <aside class="side">
+        <div class="box">
+          <h2>Modelo</h2>
+          <select id="model-select"></select>
+          <label class="check"><input type="checkbox" id="snap-mesh" /> Snap à malha (superfície do GLB)</label>
+          <label class="check"><input type="checkbox" id="show-bones" checked /> Mostrar linhas do esqueleto</label>
+          <label class="check"><input type="checkbox" id="show-mesh" checked /> Mostrar malha</label>
+          <div class="row">
+            <label class="mini">Tamanho das esferas</label>
+            <input id="sphere-size" type="range" min="0.010" max="0.090" step="0.002" value="0.034" />
+          </div>
+          <div id="model-info" class="mini"></div>
+        </div>
+        <div class="box grow">
+          <h2>Articulações <span class="mini">(x, y, z em unidades do modelo)</span></h2>
+          <div id="joint-list-3d" class="joint-list"></div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- ══════════ TAB LEGENDA ══════════ -->
+    <section id="tab-legend" class="tab-panel">
+      <div class="legend-wrap">
+        <h2>Esquema de articulações — letras e cores</h2>
+        <p class="mini">D = lado <strong>direito</strong> da criatura · E = lado <strong>esquerdo</strong>. Numa <em>vista de frente</em>, o lado D aparece à <strong>esquerda do ecrã</strong>. Os sufixos 1/2 distinguem os pares simétricos.</p>
+        <div id="legend-grid" class="legend-grid"></div>
+        <h3>Ligações do esqueleto</h3>
+        <div id="legend-connections" class="mini"></div>
+        <h3>Ficheiro de dados</h3>
+        <pre class="mini" id="schema-example"></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer id="statusbar">
+    <div id="json-preview" class="json-preview"></div>
+  </footer>
+
+  <script type="module" src="/src/rig-align/rig-align.js"></script>
+</body>
+</html>
