@@ -59,6 +59,7 @@ const QA_HP = params.has('qahp') ? Number(params.get('qahp')) : null   // QA: vi
 const QA_STALKERDEMO = params.has('stalkerdemo')   // validação: stalker à frente do jogador, em espreita
 const QA_STALKER_DIST = (() => { const v = parseFloat(params.get('stalkerdist') ?? ''); return Number.isFinite(v) ? v : null })()   // QA: distância-alvo do spawn do stalker
 const QA_STALKERDIE = (() => { const v = parseFloat(params.get('stalkerdie') ?? ''); return Number.isFinite(v) ? v : null })() // QA: dispara o ragdoll aos N segundos
+const QA_STALKERHUNT = params.has('stalkerhunt')   // QA: força o estado de caçada (stalker a avançar) após o spawn demo
 const AUTOSTART = params.has('autostart') || QA_STALKERDEMO
 
 const EYE_FALLBACK = 1.62
@@ -217,7 +218,7 @@ class Game {
       await this.renderer.setDynamicModel('stalker', this.stalkerAssets.glb)
       console.log('stalker: white_mesh definitivo — 12 mil tris, esqueleto 21 juntas + IK por passada + ragdoll')
       if (this.lvl) this._spawnStalker()
-      if (QA_STALKERDEMO) this._setupStalkerDemo()
+      if (QA_STALKERDEMO) this._setupStalkerDemo(undefined, undefined, true)
     } catch (e) {
       console.error('stalker não carregou — o jogo continua sem ele:', e)
     }
@@ -408,8 +409,8 @@ class Game {
     try { this.input.requestLock() } catch { /* headless */ }
   }
 
-  _setupStalkerDemo(dist = QA_STALKER_DIST ?? 6.0, band = QA_STALKER_DIST ? 1.6 : 3.5) {
-    if (!this.stalker) { this.hud.toast('STALKER AINDA NÃO CARREGOU'); return }
+  _setupStalkerDemo(dist = QA_STALKER_DIST ?? 6.0, band = QA_STALKER_DIST ? 1.6 : 3.5, silent = false) {
+    if (!this.stalker) { if (!silent) this.hud.toast('STALKER AINDA NÃO CARREGOU'); return }
     // projeta à frente do jogador (yaw inicial 0.75π) e cria espreita garantida
     const p = this.player
     const fx = Math.sin(p.yaw), fz = -Math.cos(p.yaw)
@@ -436,6 +437,7 @@ class Game {
     b.memPos = [p.x, p.z]
     b.memAge = 0
     b.yaw = Math.atan2(p.x - b.x, -(p.z - b.z))
+    if (QA_STALKERHUNT) { b.state = 'hunt'; b.stateTimer = 0; b.huntFocus = 99; console.log('[stalkerdemo] caçada forçada (QA)') }
     console.log('[stalkerdemo] stalker em espreita a', Math.hypot(best.wx - p.x, best.wz - p.z).toFixed(1), 'm')
     void fx; void fz
   }
@@ -453,7 +455,7 @@ class Game {
     this.reset(this.seed)
     this.state = 'playing'
     this.hud.hideScreens()
-    if (QA_STALKERDEMO) this._setupStalkerDemo()
+    if (QA_STALKERDEMO) this._setupStalkerDemo(undefined, undefined, true)
     try { this.input.requestLock() } catch { /* headless sem lock */ }
   }
 

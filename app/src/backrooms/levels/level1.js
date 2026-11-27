@@ -9,7 +9,7 @@ export const LEVEL1 = {
   wallH: 3,
   fog: { color: [0.345, 0.305, 0.205], density: 0.048 },
   hemi: { sky: [1.0, 0.94, 0.74], ground: [0.34, 0.265, 0.155], intensity: 0.86 },
-  spot: { color: [1.0, 0.94, 0.76], intensity: 10.0, inner: 0.30, outer: 0.60 },
+  spot: { color: [1.0, 0.94, 0.76], intensity: 2.9, inner: 0.30, outer: 0.60 },   // 0.2.0: 10.0 estourava a pele pálida do stalker em LDR (clip branco total)
   exitLight: { color: [0.55, 1.0, 0.68], intensity: 6.5, radius: 6.0 },
   keyLight: { color: [1.0, 0.84, 0.36], intensity: 3.0, radius: 4.5 },
   violetLight: { color: [0.52, 0.26, 0.92], intensity: 4.2, radius: 10.0 },

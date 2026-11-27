@@ -6,7 +6,8 @@
 import { loadGLB } from '../engine/gltf.js'
 import { StalkerRig } from './stalker-rig.mjs'
 
-const MODEL_YAW = Math.PI   // a face do white_mesh aponta +Z; o jogo encara −Z → vira 180°
+// face do white_mesh = +Z (olhos em z≈+0.51 no GLB). A matriz rotYTranslate mapeia +Z → (−sin r, 0, cos r);
+// para +Z alinhar a (sin b.yaw, 0, −cos b.yaw): r = π + b.yaw.
 const clamp01 = (v) => Math.max(0, Math.min(1, v))
 const smooth = (t) => t * t * (3 - 2 * t)
 const damp = (cur, target, rate, dt) => cur + (target - cur) * (1 - Math.exp(-rate * dt))
@@ -221,6 +222,6 @@ export class StalkerEntity {
       z = this._strikeFrom.z + (dz / d) * stop * e
       strikeLift = Math.sin(u * Math.PI) * 0.16
     }
-    return { x, y: ENTITY_Y + (this.sinkY ?? 0) + strikeLift, z, yaw: b.yaw + MODEL_YAW, roll: this.rig.ragdoll ? 0 : roll }
+    return { x, y: ENTITY_Y + (this.sinkY ?? 0) + strikeLift, z, yaw: b.yaw + Math.PI, roll: this.rig.ragdoll ? 0 : roll }
   }
 }

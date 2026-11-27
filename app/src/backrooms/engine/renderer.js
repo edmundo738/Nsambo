@@ -608,7 +608,7 @@ export class Renderer {
         }
         gl.uniform1f(u.uRoughness, 0.58)
         gl.uniform1f(u.uMetallic, 0.0)
-        gl.uniform3f(u.uAlbedoTint, 0.88, 0.82, 0.82)
+        gl.uniform3f(u.uAlbedoTint, 0.66, 0.60, 0.58)   // lanterna é agressiva — domada como modelArms
         break
       }
       case 'modelArms': {
