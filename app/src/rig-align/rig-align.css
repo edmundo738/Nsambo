@@ -53,7 +53,6 @@ button.toggle.on { border-color: var(--amber); color: var(--amber); box-shadow: 
 .tab-panel.active { display: flex; }
 .canvas-wrap { flex: 1; min-width: 0; position: relative; background: #050403; overflow: hidden; }
 .canvas-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
-#cv-2d { cursor: crosshair; }
 .canvas-hud {
   position: absolute; left: 10px; bottom: 8px; font-size: 0.7rem; color: var(--text-dim);
   background: rgba(5,4,3,.65); padding: 0.25rem 0.55rem; border-radius: 4px; pointer-events: none;
@@ -61,10 +60,17 @@ button.toggle.on { border-color: var(--amber); color: var(--amber); box-shadow: 
 }
 
 /* ── painel lateral ───────────────────── */
-.side { width: 380px; min-width: 320px; display: flex; flex-direction: column; gap: 0.6rem; padding: 0.6rem; background: var(--panel); border-left: 1px solid var(--line); overflow: hidden; }
+.side {
+  width: 380px; min-width: 320px; display: flex; flex-direction: column; gap: 0.6rem;
+  padding: 0.6rem; background: var(--panel); border-left: 1px solid var(--line);
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--amber-dim) var(--panel);
+}
+.side::-webkit-scrollbar, .joint-list::-webkit-scrollbar, .inspect-report::-webkit-scrollbar, .builder-wrap::-webkit-scrollbar, .sk-tree::-webkit-scrollbar, .legend-wrap::-webkit-scrollbar { width: 9px; height: 9px; }
+.side::-webkit-scrollbar-thumb, .joint-list::-webkit-scrollbar-thumb, .inspect-report::-webkit-scrollbar-thumb, .builder-wrap::-webkit-scrollbar-thumb, .sk-tree::-webkit-scrollbar-thumb { background: #4a3f30; border-radius: 6px; }
+.side::-webkit-scrollbar-thumb:hover, .joint-list::-webkit-scrollbar-thumb:hover { background: var(--amber-dim); }
 .box { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem; }
 .box h2 { margin: 0 0 0.4rem; font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); }
-.box.grow { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.box.grow { flex: 0 0 auto; min-height: 0; display: flex; flex-direction: column; }
 .mini { font-size: 0.68rem; color: var(--text-dim); }
 .bg-row { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; margin: 0.35rem 0; }
 .presets .mini { margin-right: 0.2rem; }
@@ -77,7 +83,7 @@ select, input[type="range"] { width: 100%; background: var(--panel); color: var(
 .row { margin: 0.35rem 0; }
 
 /* ── lista de pontos ──────────────────── */
-.joint-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.28rem; padding-right: 2px; }
+.joint-list { height: 40vh; min-height: 230px; max-height: 460px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.28rem; padding-right: 2px; }
 .joint-row {
   display: grid; grid-template-columns: 34px 1fr auto auto; gap: 0.4rem; align-items: center;
   background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--jc, #888);
@@ -111,3 +117,86 @@ pre.mini { background: #050403; border: 1px solid var(--line); border-radius: 6p
   .side { width: 300px; min-width: 250px; }
   .brand p { display: none; }
 }
+
+/* ── botão ANIMAÇÃO ───────────────────── */
+#btn-anim.wide { width: 100%; margin-top: 0.35rem; font-size: 0.95rem; letter-spacing: 0.08em; padding: 0.55rem 0.6rem; }
+#btn-anim.on { background: #ff9e00; border-color: #ff9e00; color: #1b1204; box-shadow: 0 0 14px rgba(255, 158, 0, 0.35); }
+
+/* ── análise do rig ───────────────────── */
+.analysis-report { display: flex; flex-direction: column; gap: 0.18rem; font-family: ui-monospace, monospace; font-size: 0.68rem; margin: 0.3rem 0 0.45rem; max-height: 30vh; overflow-y: auto; padding-right: 2px; }
+.anal-row { display: flex; gap: 0.4rem; align-items: baseline; }
+.anal-ok { color: var(--ok); }
+.anal-warn { color: #ffc94d; }
+.anal-err { color: var(--err); }
+.anal-key { color: var(--text); min-width: 11.5em; }
+.weight-legend { display: flex; align-items: center; gap: 0.45rem; font-size: 0.68rem; color: var(--text-dim); margin: 0.35rem 0; }
+.weight-ramp { flex: 1; height: 10px; border-radius: 5px; background: linear-gradient(90deg, #05060a 0%, #0000c8 25%, #00c800 50%, #fff000 75%, #ff0000 100%); border: 1px solid var(--line); }
+.check input:disabled { opacity: 0.5; }
+
+/* ── Inspetor GLB ─────────────────────────── */
+.inspect-report { margin-top: 8px; max-height: 340px; overflow: auto; }
+.inspect-h { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; margin: 10px 0 4px; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 8px; }
+.inspect-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.inspect-table th, .inspect-table td { text-align: left; padding: 2px 6px; border-bottom: 1px solid rgba(255,255,255,0.07); vertical-align: top; word-break: break-word; }
+.inspect-table th { opacity: 0.7; font-weight: 600; width: 34%; }
+.inspect-table tr:hover td, .inspect-table tr:hover th { background: rgba(255,255,255,0.04); }
+
+/* ── Esqueleto v2 (Skeleton Builder) ────────── */
+.builder-wrap { display: flex; gap: 16px; padding: 16px; align-items: flex-start; height: 100%; overflow: auto; }
+.builder-wrap .box { max-width: 460px; }
+.builder-wrap .box.grow { flex: 1; max-width: none; }
+.sk-stats { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
+.sk-stats b { color: var(--accent, #ffd894); font-weight: 600; }
+.sk-tree { overflow: auto; max-height: 62vh; font-size: 12px; }
+.sk-row { display: grid; grid-template-columns: 16px minmax(150px,1.4fr) 1fr 150px 170px 26px; gap: 6px; align-items: center; padding: 2px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.sk-row:hover { background: rgba(255,255,255,0.04); }
+.sk-row input, .sk-row select { background: rgba(255,255,255,0.06); color: inherit; border: 1px solid rgba(255,255,255,0.12); border-radius: 4px; padding: 2px 4px; font-size: 11px; width: 100%; }
+.sk-row .sk-id { opacity: 0.85; font-family: ui-monospace, monospace; }
+.sk-indent { display: inline-block; }
+.sk-cat-skeletal { border-left: 3px solid #69db7c; }
+.sk-cat-anatomical-reference { border-left: 3px solid #74c0fc; }
+.sk-cat-facial-controller { border-left: 3px solid #e599f7; }
+.sk-cat-deformation-region { border-left: 3px solid #ffd43b; }
+.sk-pair-ok { color: #69db7c; }
+.sk-pair-miss { color: #ffa94d; }
+.sk-row input.sk-id-invalid { border-color: #ff6b6b; color: #ff8787; }
+
+/* ── navegação 3D (overlay) ───────────── */
+.view-overlay { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 0.35rem; z-index: 5; }
+.view-overlay button { background: rgba(10,8,5,.78); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 0.32rem 0.6rem; font-size: 0.72rem; font-family: ui-monospace, monospace; backdrop-filter: blur(2px); }
+.view-overlay button:hover { border-color: var(--amber); color: var(--amber); }
+.view-overlay .vo-label { font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); text-align: right; padding-right: 2px; }
+
+/* ── fluxo de trabalho (passos) ───────── */
+.flow-hint { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.45rem 0 0.1rem; }
+.flow-hint span { font-size: 0.62rem; color: var(--text-dim); background: rgba(255,216,148,.06); border: 1px solid var(--line); border-radius: 4px; padding: 0.12rem 0.4rem; font-family: ui-monospace, monospace; }
+.flow-hint b { color: var(--amber); font-weight: 600; margin-right: 0.25rem; }
+
+/* ── colapso do rodapé JSON ───────────── */
+.json-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.14rem 0.7rem; border-bottom: 1px solid var(--line); }
+.json-bar .mini { opacity: 0.65; font-size: 0.62rem; letter-spacing: 0.05em; text-transform: uppercase; }
+#json-toggle { padding: 0.1rem 0.6rem; font-size: 0.68rem; opacity: 0.9; }
+#statusbar.collapsed .json-preview { display: none; }
+#statusbar.collapsed .json-bar { border-bottom: none; }
+
+/* ── responsivo: embebido/estreito → coluna ── */
+@media (max-width: 940px) {
+  body { overflow: auto; }
+  #layout { overflow: auto; }
+  .tab-panel { display: none; height: auto; min-height: 100%; }
+  .tab-panel.active { display: block; }
+  .canvas-wrap { height: 52vh; min-height: 340px; }
+  .side { width: 100%; min-width: 0; border-left: none; border-top: 1px solid var(--line); }
+  .joint-list { height: 320px; }
+  .builder-wrap { flex-direction: column; height: auto; }
+  .builder-wrap .box { max-width: none; width: 100%; }
+  .view-overlay { flex-direction: row; }
+}
+
+/* ── caixas recolhíveis ──────────────────── */
+.box-collapse > summary { cursor: pointer; list-style: none; font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); user-select: none; padding: 0.05rem 0; }
+.box-collapse > summary::-webkit-details-marker { display: none; }
+.box-collapse > summary::before { content: '▸ '; color: var(--amber-dim); }
+.box-collapse[open] > summary::before { content: '▾ '; }
+.box-collapse > summary:hover { color: #ffe9b8; }
+.box-collapse[open] > summary { margin-bottom: 0.4rem; }

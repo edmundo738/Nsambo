@@ -1,22 +1,23 @@
-// NSAMBO · rig-align — editor de articulações (2D + 3D)
+// NSAMBO · rig-align — editor de articulações 3D sobre modelo GLB
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { SCHEMA_VERSION, JOINTS, CONNECTIONS, JOINT_MAP, MODELS, defaultPoints } from './joints.js'
+import { createStalkerAnimator } from './animated-stalker.js'
+import { loadGLB } from '../backrooms/engine/gltf.js'
+import { analyzeWeights, normalizeWeights, validateAnchors, JOINT_NAMES } from '../backrooms/game/stalker-anchors.mjs'
+import { inspectGLB, renderInspectorReport } from './glb-inspect.js'
+import { initSkeletonBuilder } from './skeleton-builder.js'
 
 const $ = (s) => document.querySelector(s)
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
 
 // ─────────────────────────── estado ───────────────────────────
 const state = {
-  tab: 'tab-2d',
+  tab: 'tab-3d',
   modelName: 'stalker',
   points: defaultPoints(),
   selected: 'B',
-  bg: 'grid',              // grid | silhouette | none | image
-  image: null,             // HTMLImageElement
-  imageSrc: null,          // url ou 'upload:nome'
-  imageName: null,         // nome original do ficheiro
   snapMesh: false,
   showBones: true,
   showMesh: true,
@@ -24,25 +25,25 @@ const state = {
 }
 
 const draftKey = () => `rig-align:${state.modelName}`
-function saveDraft() { try { localStorage.setItem(draftKey(), JSON.stringify({ points: state.points, bg: state.bg })) } catch {} }
+function saveDraft() {
+  try { localStorage.setItem(draftKey(), JSON.stringify({ points: state.points })) } catch {}
+  // o preview escuta este evento e reconstrói o esqueleto animado em tempo real
+  try { window.dispatchEvent(new CustomEvent('rig-align:anchors-changed')) } catch {}
+}
 function loadDraft() {
   try {
     const d = JSON.parse(localStorage.getItem(draftKey()) ?? 'null')
     if (d?.points) for (const id of Object.keys(state.points)) if (d.points[id]) state.points[id] = { ...state.points[id], ...d.points[id] }
-    if (d?.bg) state.bg = d.bg === 'image' ? 'grid' : d.bg
   } catch {}
 }
 
 // ─────────────────────────── JSON ───────────────────────────
-function buildJSON(mode) {
-  const img = state.image
+function buildJSON() {
   const out = {
     schema: SCHEMA_VERSION,
     name: state.modelName,
-    mode,
-    image: mode === '2d'
-      ? { src: state.imageSrc, width: img?.naturalWidth ?? null, height: img?.naturalHeight ?? null }
-      : null,
+    mode: '3d',
+    image: null,
     convention: 'nx: 0=esquerda..1=direita · ny: 0=topo..1=baixo (imagem) · nz: profundidade normalizada (só 3D)',
     points: {},
     connections: CONNECTIONS,
@@ -50,17 +51,16 @@ function buildJSON(mode) {
   }
   for (const j of JOINTS) {
     const p = state.points[j.id]
-    const wp = mode === '3d' ? anchorToModel(p) : null
+    const wp = anchorToModel(p)
     out.points[j.id] = {
       label: j.label, side: j.side, color: j.color,
       nx: +p.nx.toFixed(5), ny: +p.ny.toFixed(5), nz: +p.nz.toFixed(5),
-      ...(mode === '2d' && img ? { imgX: +(p.nx * img.naturalWidth).toFixed(2), imgY: +(p.ny * img.naturalHeight).toFixed(2) } : {}),
-      ...(wp ? { model: { x: +wp.x.toFixed(4), y: +wp.y.toFixed(4), z: +wp.z.toFixed(4) } } : {}),
+      model: { x: +wp.x.toFixed(4), y: +wp.y.toFixed(4), z: +wp.z.toFixed(4) },
     }
   }
   return out
 }
-const jsonString = () => JSON.stringify(buildJSON(state.tab === 'tab-3d' ? '3d' : '2d'), null, 2)
+const jsonString = () => JSON.stringify(buildJSON(), null, 2)
 
 function refreshJsonPreview() {
   const el = $('#json-preview')
@@ -88,7 +88,7 @@ function downloadJSON() {
   setStatus('ficheiro exportado ✓')
 }
 async function saveToWorkspace() {
-  const data = buildJSON(state.tab === 'tab-3d' ? '3d' : '2d')
+  const data = buildJSON()
   setStatus('a guardar…')
   try {
     const res = await fetch('/__rig/save', {
@@ -111,220 +111,8 @@ function setStatus(msg, isErr = false) {
   setStatus._t = setTimeout(() => { el.textContent = '' }, 5000)
 }
 
-// ═══════════════════════ 2D — canvas ═══════════════════════
-const cv = $('#cv-2d')
-const ctx = cv.getContext('2d')
-let imgRect = { x: 0, y: 0, w: 0, h: 0 }
-let hoverId = null
-let dragId = null
-
-function resize2D() {
-  const wrap = cv.parentElement.getBoundingClientRect()
-  const dpr = Math.min(2, window.devicePixelRatio || 1)
-  cv.width = Math.max(2, Math.round(wrap.width * dpr))
-  cv.height = Math.max(2, Math.round(wrap.height * dpr))
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  draw2D()
-}
-
-function computeImgRect(vw, vh) {
-  if (!state.image) return { x: 0, y: 0, w: vw, h: vh }
-  const iw = state.image.naturalWidth, ih = state.image.naturalHeight
-  const s = Math.min(vw / iw, vh / ih)
-  const w = iw * s, h = ih * s
-  return { x: (vw - w) / 2, y: (vh - h) / 2, w, h }
-}
-
-function toCanvas(p) { return { x: imgRect.x + p.nx * imgRect.w, y: imgRect.y + p.ny * imgRect.h } }
-function fromCanvas(x, y) {
-  return { nx: clamp01((x - imgRect.x) / imgRect.w), ny: clamp01((y - imgRect.y) / imgRect.h) }
-}
-
-function drawSilhouette(vw, vh) {
-  const cx = vw / 2, u = Math.min(vw, vh) / 100
-  ctx.save()
-  ctx.fillStyle = 'rgba(232, 224, 208, 0.10)'
-  ctx.strokeStyle = 'rgba(232, 224, 208, 0.28)'
-  ctx.lineWidth = 1.5
-  const y = (f) => vh * f
-  // silhueta humanoide genérica (proporções médias)
-  ctx.beginPath(); ctx.ellipse(cx, y(0.115), 9 * u, 11 * u, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke()   // cabeça
-  ctx.beginPath(); ctx.ellipse(cx, y(0.245), 24 * u, 6.4 * u, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke() // ombros
-  // tronco (trapézio com cintura)
-  ctx.beginPath()
-  ctx.moveTo(cx - 15 * u, y(0.19))
-  ctx.quadraticCurveTo(cx - 17.5 * u, y(0.40), cx - 10.5 * u, y(0.56))
-  ctx.lineTo(cx + 10.5 * u, y(0.56))
-  ctx.quadraticCurveTo(cx + 17.5 * u, y(0.40), cx + 15 * u, y(0.19))
-  ctx.closePath(); ctx.fill(); ctx.stroke()
-  // braços
-  for (const s of [-1, 1]) {
-    ctx.beginPath(); ctx.ellipse(cx + s * 30 * u, y(0.40), 5.2 * u, 17 * u, s * -0.18, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
-    ctx.beginPath(); ctx.ellipse(cx + s * 40 * u, y(0.55), 4.6 * u, 15 * u, s * -0.10, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
-  }
-  // pernas
-  for (const s of [-1, 1]) {
-    ctx.beginPath(); ctx.ellipse(cx + s * 8 * u, y(0.745), 6.4 * u, 18 * u, s * 0.03, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
-    ctx.beginPath(); ctx.ellipse(cx + s * 9.5 * u, y(0.925), 5.2 * u, 14 * u, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
-  }
-  ctx.restore()
-}
-
-function drawGrid(vw, vh) {
-  ctx.save()
-  ctx.lineWidth = 1
-  ctx.strokeStyle = 'rgba(255, 216, 148, 0.055)'
-  for (let x = 0; x <= vw; x += 20) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, vh); ctx.stroke() }
-  for (let y = 0; y <= vh; y += 20) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(vw, y); ctx.stroke() }
-  ctx.strokeStyle = 'rgba(255, 216, 148, 0.14)'
-  for (let x = 0; x <= vw; x += 100) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, vh); ctx.stroke() }
-  for (let y = 0; y <= vh; y += 100) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(vw, y); ctx.stroke() }
-  // eixos centrais
-  ctx.strokeStyle = 'rgba(255, 216, 148, 0.30)'
-  ctx.setLineDash([6, 6])
-  ctx.beginPath(); ctx.moveTo(vw / 2, 0); ctx.lineTo(vw / 2, vh); ctx.stroke()
-  ctx.restore()
-}
-
-function draw2D() {
-  const vw = cv.clientWidth, vh = cv.clientHeight
-  if (!vw || !vh) return
-  ctx.clearRect(0, 0, vw, vh)
-  // fundo
-  ctx.fillStyle = '#050403'; ctx.fillRect(0, 0, vw, vh)
-  if (state.bg === 'image' && state.image) {
-    imgRect = computeImgRect(vw, vh)
-    ctx.fillStyle = '#000'; ctx.fillRect(imgRect.x, imgRect.y, imgRect.w, imgRect.h)
-    ctx.drawImage(state.image, imgRect.x, imgRect.y, imgRect.w, imgRect.h)
-  } else {
-    imgRect = { x: 0, y: 0, w: vw, h: vh }
-    if (state.bg === 'grid') drawGrid(vw, vh)
-    if (state.bg === 'silhouette') drawSilhouette(vw, vh)
-  }
-  // moldura da área útil
-  ctx.strokeStyle = 'rgba(255, 216, 148, 0.18)'; ctx.lineWidth = 1
-  ctx.strokeRect(imgRect.x + 0.5, imgRect.y + 0.5, imgRect.w - 1, imgRect.h - 1)
-
-  const P = Object.fromEntries(Object.entries(state.points).map(([id, p]) => [id, toCanvas(p)]))
-
-  // linhas do esqueleto
-  ctx.save()
-  ctx.lineWidth = 2.4
-  ctx.shadowBlur = 6
-  for (const [a, b] of CONNECTIONS) {
-    const pa = P[a], pb = P[b]
-    ctx.strokeStyle = 'rgba(255, 216, 148, 0.36)'
-    ctx.shadowColor = 'rgba(255,216,148,.35)'
-    ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke()
-  }
-  ctx.restore()
-
-  // pontos
-  for (const j of JOINTS) {
-    const p = P[j.id]
-    const selected = j.id === state.selected
-    const hovered = j.id === hoverId
-    ctx.save()
-    if (selected) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 16 } else { ctx.shadowColor = j.color; ctx.shadowBlur = hovered ? 12 : 6 }
-    ctx.fillStyle = j.color
-    ctx.beginPath(); ctx.arc(p.x, p.y, selected ? 12.5 : 9.5, 0, Math.PI * 2); ctx.fill()
-    ctx.shadowBlur = 0
-    ctx.lineWidth = selected ? 2.4 : 1.4
-    ctx.strokeStyle = selected ? '#ffffff' : 'rgba(10,8,5,0.85)'
-    ctx.stroke()
-    // letra
-    ctx.fillStyle = '#0a0805'
-    ctx.font = `800 ${j.id.length > 1 ? 9.5 : 11}px ui-monospace, monospace`
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.fillText(j.id, p.x, p.y + 0.5)
-    // etiqueta externa
-    ctx.fillStyle = selected ? '#ffd894' : 'rgba(232,224,208,0.75)'
-    ctx.font = '10.5px "Segoe UI", sans-serif'
-    ctx.textAlign = 'left'
-    ctx.fillText(`${j.id} · ${j.label}`, p.x + 13, p.y - 8)
-    ctx.restore()
-  }
-}
-
-function hitTest(mx, my) {
-  let best = null, bestD = 16
-  for (const j of JOINTS) {
-    const p = toCanvas(state.points[j.id])
-    const d = Math.hypot(p.x - mx, p.y - my)
-    if (d < bestD) { bestD = d; best = j.id }
-  }
-  return best
-}
-const evPos = (ev) => {
-  const r = cv.getBoundingClientRect()
-  return { x: ev.clientX - r.left, y: ev.clientY - r.top }
-}
-cv.addEventListener('pointerdown', (ev) => {
-  const { x, y } = evPos(ev)
-  const hit = hitTest(x, y)
-  if (hit) { dragId = hit; state.selected = hit; cv.setPointerCapture(ev.pointerId) }
-  else state.selected = hit ?? state.selected
-  syncAll()
-})
-cv.addEventListener('pointermove', (ev) => {
-  const { x, y } = evPos(ev)
-  if (dragId) {
-    state.points[dragId] = { ...state.points[dragId], ...fromCanvas(x, y) }
-    draw2D(); refreshJsonPreview(); syncListInputs(); saveDraft()
-  } else {
-    const h = hitTest(x, y)
-    if (h !== hoverId) { hoverId = h; cv.style.cursor = h ? 'grab' : 'crosshair'; draw2D() }
-  }
-})
-cv.addEventListener('pointerup', () => { dragId = null })
-cv.addEventListener('keydown', (ev) => {
-  const step = ev.shiftKey ? 10 : 1
-  const p = state.points[state.selected]
-  const vw = cv.clientWidth || 1
-  const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key]
-  if (!d) return
-  ev.preventDefault()
-  state.points[state.selected] = { ...p, nx: clamp01(p.nx + d[0] / vw), ny: clamp01(p.ny + d[1] / (cv.clientHeight || 1)) }
-  draw2D(); refreshJsonPreview(); syncListInputs(); saveDraft()
-})
-cv.tabIndex = 0
-
-// fundo
-$('#bg-file').addEventListener('change', (ev) => {
-  const file = ev.target.files?.[0]
-  if (!file) return
-  const url = URL.createObjectURL(file)
-  const img = new Image()
-  img.onload = () => {
-    state.image = img; state.imageSrc = `upload:${file.name}`; state.imageName = file.name; state.bg = 'image'
-    $('#bg-info').textContent = `${file.name} — ${img.naturalWidth}×${img.naturalHeight}`
-    setBgToggles(); draw2D(); refreshJsonPreview(); saveDraft()
-  }
-  img.src = url
-})
-$('#bg-grid').addEventListener('click', () => { state.bg = 'grid'; setBgToggles(); draw2D(); refreshJsonPreview(); saveDraft() })
-$('#bg-silhouette').addEventListener('click', () => { state.bg = 'silhouette'; setBgToggles(); draw2D(); refreshJsonPreview(); saveDraft() })
-$('#bg-none').addEventListener('click', () => { state.bg = 'none'; setBgToggles(); draw2D(); refreshJsonPreview(); saveDraft() })
-function setBgToggles() {
-  for (const [id, key] of [['#bg-grid', 'grid'], ['#bg-silhouette', 'silhouette'], ['#bg-none', 'none']]) {
-    $(id).classList.toggle('on', state.bg === key)
-  }
-}
-$('#bg-presets').addEventListener('click', (ev) => {
-  const btn = ev.target.closest('button[data-preset]')
-  if (!btn) return
-  const img = new Image()
-  img.onload = () => {
-    state.image = img; state.imageSrc = btn.dataset.preset; state.imageName = btn.textContent.trim(); state.bg = 'image'
-    $('#bg-info').textContent = `${state.imageName} — ${img.naturalWidth}×${img.naturalHeight}`
-    setBgToggles(); draw2D(); refreshJsonPreview(); saveDraft()
-  }
-  img.onerror = () => setStatus('não foi possível carregar o preset', true)
-  img.src = btn.dataset.preset
-})
-
 // ═══════════════════════ listas laterais ═══════════════════════
-function buildList(containerSel, withZ) {
+function buildList(containerSel) {
   const box = $(containerSel)
   box.innerHTML = ''
   for (const j of JOINTS) {
@@ -335,12 +123,9 @@ function buildList(containerSel, withZ) {
     row.innerHTML = `
       <div class="joint-chip">${j.id}</div>
       <div class="joint-name">${j.label}${j.side ? ` <span class="mini">(${j.side === 'D' ? 'direito' : 'esquerdo'})</span>` : ''}</div>
-      ${withZ
-        ? `<label class="joint-field">x<input type="number" step="0.005" data-axis="x" /></label>
-           <label class="joint-field">y<input type="number" step="0.005" data-axis="y" /></label>
-           <label class="joint-field">z<input type="number" step="0.005" data-axis="z" /></label>`
-        : `<label class="joint-field">X<input type="number" step="0.5" data-axis="imgX" /></label>
-           <label class="joint-field">Y<input type="number" step="0.5" data-axis="imgY" /></label>`}
+      <label class="joint-field">x<input type="number" step="0.005" data-axis="x" /></label>
+      <label class="joint-field">y<input type="number" step="0.005" data-axis="y" /></label>
+      <label class="joint-field">z<input type="number" step="0.005" data-axis="z" /></label>
     `
     row.addEventListener('click', () => { state.selected = j.id; syncAll() })
     row.querySelectorAll('input').forEach((inp) => {
@@ -349,17 +134,10 @@ function buildList(containerSel, withZ) {
         const v = parseFloat(inp.value)
         if (!Number.isFinite(v)) return
         const p = state.points[j.id]
-        if (withZ) {
-          const wp = anchorToModel(p)
-          wp[inp.dataset.axis] = v
-          state.points[j.id] = modelToAnchor(wp)
-        } else {
-          const img = state.image
-          if (!img) return
-          if (inp.dataset.axis === 'imgX') state.points[j.id] = { ...p, nx: clamp01(v / img.naturalWidth) }
-          else state.points[j.id] = { ...p, ny: clamp01(v / img.naturalHeight) }
-        }
-        draw2D(); refresh3D(); refreshJsonPreview(); saveDraft()
+        const wp = anchorToModel(p)
+        wp[inp.dataset.axis] = v
+        state.points[j.id] = modelToAnchor(wp)
+        refresh3D(); refreshJsonPreview(); saveDraft()
       })
       inp.addEventListener('click', (e) => e.stopPropagation())
     })
@@ -368,19 +146,6 @@ function buildList(containerSel, withZ) {
 }
 
 function syncListInputs() {
-  // 2D
-  document.querySelectorAll('#joint-list .joint-row').forEach((row) => {
-    const id = row.dataset.id
-    const p = state.points[id]
-    row.classList.toggle('selected', id === state.selected)
-    const img = state.image
-    const xi = row.querySelector('[data-axis="imgX"]'), yi = row.querySelector('[data-axis="imgY"]')
-    if (xi && img) xi.value = (p.nx * img.naturalWidth).toFixed(1)
-    if (yi && img) yi.value = (p.ny * img.naturalHeight).toFixed(1)
-    if (xi && !img) { xi.value = (p.nx * 100).toFixed(2) + '%'; xi.disabled = true } else if (xi) xi.disabled = false
-    if (yi && !img) { yi.value = (p.ny * 100).toFixed(2) + '%'; yi.disabled = true } else if (yi) yi.disabled = false
-  })
-  // 3D
   document.querySelectorAll('#joint-list-3d .joint-row').forEach((row) => {
     const id = row.dataset.id
     const wp = anchorToModel(state.points[id])
@@ -390,7 +155,7 @@ function syncListInputs() {
   })
 }
 function syncAll() {
-  draw2D(); refresh3D(); refreshJsonPreview(); syncListInputs(); saveDraft()
+  refresh3D(); refreshJsonPreview(); syncListInputs(); saveDraft()
 }
 
 // ═══════════════════════ 3D — three.js ═══════════════════════
@@ -403,6 +168,12 @@ const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 100)
 camera.position.set(1.6, 1.4, 2.2)
 const controls = new OrbitControls(camera, cv3)
 controls.enableDamping = true
+controls.dampingFactor = 0.08
+controls.screenSpacePanning = true        // pan intuitivo (o alvo voa com o ecrã, não com o chão)
+controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }
+controls.minDistance = 0.35
+controls.maxDistance = 6
 
 scene.add(new THREE.HemisphereLight(0xffe6b8, 0x1a1410, 1.15))
 const key = new THREE.DirectionalLight(0xfff2dd, 1.6); key.position.set(2, 3, 2.4); scene.add(key)
@@ -524,20 +295,121 @@ function loadModel(url, nameForStatus) {
     modelBox = new THREE.Box3().setFromObject(modelRoot)
     const size = modelBox.getSize(new THREE.Vector3())
     const center = modelBox.getCenter(new THREE.Vector3())
-    controls.target.copy(center)
-    const radius = Math.max(size.x, size.y, size.z)
-    camera.position.set(center.x + radius * 1.15, center.y + radius * 0.35, center.z + radius * 1.55)
-    camera.near = Math.max(0.01, radius / 100); camera.far = radius * 100; camera.updateProjectionMatrix()
+    frameModel()
     grid.position.y = modelBox.min.y - 0.001
     $('#model-info').textContent = `${nameForStatus} — bbox ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)}`
     rebuildAnchors()
     syncListInputs(); refreshJsonPreview()
+    scheduleAnalysis(120)
   }, undefined, (err) => {
     $('#model-info').textContent = `falha ao carregar ${nameForStatus}: ${err?.message ?? 'erro desconhecido'}`
   })
 }
 
+// enquadra o modelo inteiro na câmara (usado no load e no botão Recentrar)
+function frameModel(dir = null) {
+  if (!modelBox) return
+  const size = modelBox.getSize(new THREE.Vector3())
+  const center = modelBox.getCenter(new THREE.Vector3())
+  const radius = Math.max(size.x, size.y, size.z) || 1
+  const d = dir ?? new THREE.Vector3(1.15, 0.35, 1.55).normalize()
+  camera.position.set(center.x + d.x * radius * 1.9, center.y + d.y * radius * 1.9, center.z + d.z * radius * 1.9)
+  camera.near = Math.max(0.01, radius / 100); camera.far = radius * 100; camera.updateProjectionMatrix()
+  controls.target.copy(center)
+  controls.update()
+}
+
 // seleção/arraste de esferas
+// animação do modelo GLB — ÚNICO esqueleto: o derivado exclusivamente das âncoras do utilizador
+let animator = null, animating = false
+const animClock = new THREE.Clock()
+let anchorDebounce = 0
+// converte o THREE.Box3 do editor para o formato plano {min,max,center,size} que o construtor partilhado usa
+const plainBoxFromThree = (box) => {
+  const size = box.getSize(new THREE.Vector3())
+  const center = box.getCenter(new THREE.Vector3())
+  return {
+    min: [box.min.x, box.min.y, box.min.z],
+    max: [box.max.x, box.max.y, box.max.z],
+    center: [center.x, center.y, center.z],
+    size: [size.x, size.y, size.z],
+  }
+}
+const isStalkerModel = () => ($('#model-select').value || 'stalker') === 'stalker'
+function setAnimUI(on) {
+  const btn = $('#btn-anim')
+  btn.textContent = on ? '⏸ PARAR ANIMAÇÃO' : '▶ ANIMAÇÃO'
+  btn.classList.toggle('on', on)
+  $('#snap-mesh').disabled = on
+  if (on) $('#snap-mesh').checked = (state.snapMesh = false)
+}
+async function startAnim() {
+  const btn = $('#btn-anim')
+  btn.disabled = true
+  btn.textContent = 'a carregar…'
+  setWeightView(false)   // pesos e animação não coexistem no ecrã
+  try {
+    animator = await createStalkerAnimator({
+      scene,
+      getAnchors: () => state.points,
+      onStats: (() => {
+        let tick = 0
+        return ({ mean, over }) => {
+          if (++tick % 20 !== 0) return
+          $('#model-info').textContent = `ANIMAÇÃO — esqueleto = só as tuas âncoras · def. média ${mean.toFixed(1)} cm · ${over} verts >12 cm`
+        }
+      })(),
+    })
+    animating = true
+    if (modelRoot) modelRoot.visible = false
+    setAnimUI(true)
+  } catch (e) {
+    setStatus('falha ao iniciar ANIMAÇÃO: ' + (e?.message ?? e), true)
+    btn.disabled = false
+    btn.textContent = '▶ ANIMAÇÃO'
+  }
+}
+function stopAnim() {
+  animating = false
+  if (animator) { animator.dispose(); animator = null }
+  if (modelRoot) modelRoot.visible = state.showMesh
+  setAnimUI(false)
+  $('#model-info').textContent = 'animação parada — malha estática de volta'
+}
+// ── Inspetor GLB (read-only) ──
+$('#btn-inspect').addEventListener('click', async () => {
+  const report = $('#glb-report')
+  const btn = $('#btn-inspect')
+  const m = MODELS.find(x => x.id === ($('#model-select').value || 'stalker'))
+  if (!m) return
+  btn.disabled = true
+  btn.textContent = 'a inspecionar…'
+  report.hidden = false
+  report.textContent = 'a ler ' + m.url + '…'
+  try {
+    const r = await inspectGLB(m.url)
+    report.innerHTML = renderInspectorReport(r)
+  } catch (err) {
+    report.innerHTML = `<div class="anal-err">falha na inspeção: ${String(err?.message ?? err)}</div>`
+  } finally {
+    btn.disabled = false
+    btn.textContent = '⌘ Inspecionar GLB'
+  }
+})
+
+$('#btn-anim').addEventListener('click', () => {
+  if (!isStalkerModel()) { setStatus('a ANIMAÇÃO existe só para o Stalker (stalker.glb)', true); return }
+  if (animating) { stopAnim(); return }
+  startAnim().finally(() => { $('#btn-anim').disabled = false })
+})
+// rebuild em tempo real quando o utilizador edita as âncoras durante a animação
+window.addEventListener('rig-align:anchors-changed', () => {
+  scheduleAnalysis(250)
+  if (!animating || !animator) return
+  clearTimeout(anchorDebounce)
+  anchorDebounce = setTimeout(() => { try { animator?.applyAnchors() } catch (e) { setStatus('âncoras: ' + (e?.message ?? e), true) } }, 160)
+})
+
 const raycaster = new THREE.Raycaster()
 const pointerNDC = new THREE.Vector2()
 let dragSphere = null
@@ -570,7 +442,7 @@ cv3.addEventListener('pointermove', (ev) => {
   if (dragSphere) {
     const id = dragSphere.userData.id
     let wp = null
-    if (state.snapMesh && modelRoot) {
+    if (state.snapMesh && !animating && modelRoot) {
       const hits = raycaster.intersectObject(modelRoot, true)
       if (hits.length) wp = hits[0].point.clone()
     }
@@ -595,15 +467,17 @@ cv3.addEventListener('pointercancel', endDrag)
 $('#model-select').innerHTML = MODELS.map(m => `<option value="${m.id}">${m.name}</option>`).join('')
 $('#model-select').addEventListener('change', (ev) => {
   const m = MODELS.find(m => m.id === ev.target.value)
+  if (animating) stopAnim()
+  setWeightView(false)
   $('#model-name').value = state.modelName = m.id === 'stalker' ? 'stalker' : m.id
   loadDraft()
   loadModel(m.url, m.name)
-  buildList('#joint-list-3d', true)
+  buildList('#joint-list-3d')
   syncListInputs(); refreshJsonPreview()
 })
 $('#snap-mesh').addEventListener('change', (ev) => { state.snapMesh = ev.target.checked })
 $('#show-bones').addEventListener('change', (ev) => { state.showBones = ev.target.checked; refresh3D() })
-$('#show-mesh').addEventListener('change', (ev) => { state.showMesh = ev.target.checked; if (modelRoot) modelRoot.visible = state.showMesh })
+$('#show-mesh').addEventListener('change', (ev) => { state.showMesh = ev.target.checked; if (animator) animator.mesh.visible = state.showMesh; if (modelRoot) modelRoot.visible = !animating && state.showMesh })
 $('#sphere-size').addEventListener('input', (ev) => { state.sphereSize = parseFloat(ev.target.value); rebuildAnchors(); refresh3D() })
 
 function resize3D() {
@@ -616,6 +490,8 @@ function resize3D() {
 // render loop
 function tick() {
   requestAnimationFrame(tick)
+  const dt = Math.min(0.05, animClock.getDelta() || 0.016)
+  if (animating && animator) animator.update(dt)
   controls.update()
   renderer.render(scene, camera)
 }
@@ -630,20 +506,41 @@ function buildLegend() {
     </div>`).join('')
   $('#legend-connections').innerHTML = CONNECTIONS.map(([a, b]) => `<span class="conn-pill">${a}→${b}</span>`).join('')
   $('#schema-example').textContent = JSON.stringify({
-    schema: SCHEMA_VERSION, name: 'stalker', mode: '2d',
-    image: { src: '/rig-align/preset-frente.png', width: 872, height: 872 },
-    points: { A: { label: 'Queixo', side: null, color: '#ffd60a', nx: 0.5, ny: 0.115, nz: 0, imgX: 436, imgY: 100 }, '…': '…' },
+    schema: SCHEMA_VERSION, name: 'stalker', mode: '3d', image: null,
+    points: { A: { label: 'Queixo', side: null, color: '#ffd60a', nx: 0.5, ny: 0.115, nz: 0, model: { x: 0, y: 0, z: 0 } }, '…': '…' },
     connections: CONNECTIONS, updatedAt: '…',
   }, null, 2)
 }
 
+// ═══════════════════════ navegação 3D (overlay) ═══════════════════════
+const setView = (dir) => frameModel(new THREE.Vector3(...dir).normalize())
+$('#view-reset')?.addEventListener('click', () => frameModel())
+$('#view-front')?.addEventListener('click', () => setView([0, 0.08, 1]))
+$('#view-side')?.addEventListener('click', () => setView([1, 0.08, 0]))
+$('#view-top')?.addEventListener('click', () => setView([0.0001, 1, 0.0001]))
+// atalhos de teclado: 1 frente · 3 lado · 7 cima · 0 recentrar (estilo DCC)
+window.addEventListener('keydown', (ev) => {
+  if (ev.target?.matches?.('input, select, textarea')) return
+  if (ev.key === '1') setView([0, 0.08, 1])
+  else if (ev.key === '3') setView([1, 0.08, 0])
+  else if (ev.key === '7') setView([0.0001, 1, 0.0001])
+  else if (ev.key === '0') frameModel()
+})
+
+// rodapé JSON recolhível — ganha espaço vertical no ecrã
+$('#json-toggle')?.addEventListener('click', () => {
+  const bar = $('#statusbar')
+  bar.classList.toggle('collapsed')
+  $('#json-toggle').textContent = bar.classList.contains('collapsed') ? 'JSON ▸' : 'JSON ▾'
+})
+
 // ═══════════════════════ tabs ═══════════════════════
 document.querySelectorAll('#tabs button[data-tab]').forEach((btn) => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
     state.tab = btn.dataset.tab
     document.querySelectorAll('#tabs button[data-tab]').forEach(b => b.classList.toggle('active', b === btn))
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === state.tab))
-    if (state.tab === 'tab-3d') { resize3D() } else if (state.tab === 'tab-2d') { resize2D() }
+    if (state.tab === 'tab-3d') resize3D()
     refreshJsonPreview()
   })
 })
@@ -653,19 +550,236 @@ $('#model-name').addEventListener('input', (ev) => {
   state.modelName = ev.target.value.trim() || 'stalker'
   saveDraft()
 })
+// aplica um JSON de âncoras carregado (do disco ou do workspace) ao editor 3D
+function applyAnchorData(d) {
+  if (!d || d.schema !== 'nsambo-rig-align@1' || !d.points || typeof d.points !== 'object') {
+    setStatus('ficheiro inválido — não é um nsambo-rig-align@1', true)
+    return false
+  }
+  const known = new Set(JOINTS.map(j => j.id))
+  let applied = 0
+  for (const id of known) {
+    const p = d.points[id]
+    if (!p) continue
+    const nx = Number(p.nx), ny = Number(p.ny), nz = Number(p.nz)
+    if (Number.isFinite(nx) && Number.isFinite(ny) && Number.isFinite(nz)) {
+      state.points[id] = { nx: clamp01(nx), ny: clamp01(ny), nz: Math.max(-2, Math.min(2, nz)) }
+      applied++
+    }
+  }
+  if (applied === 0) { setStatus('o ficheiro não traz pontos A…I2 válidos', true); return false }
+  if (d.name && typeof d.name === 'string' && d.name.trim()) state.modelName = d.name.trim()
+  const missing = JOINTS.filter(j => !d.points[j.id]).map(j => j.id)
+  loadDraftFromPoints()
+  syncAll()
+  setStatus(`âncoras carregadas ✓ (${applied} pontos)${missing.length ? ` — faltam ${missing.join(', ')} (novos, com valores sintéticos — posiciona-os)` : ''}`)
+  scheduleAnalysis(150)
+  return true
+}
+function loadDraftFromPoints() {
+  try { localStorage.setItem(draftKey(), JSON.stringify({ points: state.points })) } catch {}
+  window.dispatchEvent(new CustomEvent('rig-align:anchors-changed'))
+}
+$('#btn-load').addEventListener('click', async () => {
+  // carregar substitui o trabalho atual (o draft local é sobrescrito) — confirma antes
+  if (!window.confirm('Carregar substitui as âncoras atuais. O que tens por guardar no 💾 perde-se. Continuar?')) return
+  // 1) tenta o workspace (rig-data/<nome>.json via middleware do vite)
+  try {
+    const res = await fetch('/__rig/load?name=' + encodeURIComponent(state.modelName), { cache: 'no-store' })
+    if (res.ok) { applyAnchorData(await res.json()); return }
+  } catch {}
+  // 2) fallback sempre-funciona: seletor de ficheiro
+  $('#load-file').click()
+})
+$('#load-file').addEventListener('change', (ev) => {
+  const f = ev.target.files?.[0]; if (!f) return
+  const fr = new FileReader()
+  fr.onload = () => { try { applyAnchorData(JSON.parse(String(fr.result))) } catch (e) { setStatus('JSON inválido: ' + e.message, true) } ev.target.value = '' }
+  fr.readAsText(f)
+})
 $('#btn-save').addEventListener('click', saveToWorkspace)
 $('#btn-copy').addEventListener('click', copyJSON)
 $('#btn-download').addEventListener('click', downloadJSON)
 
+
+// ═══════════════════════ análise do rig + vista de pesos ═══════════════════════
+let weightMesh = null, weightViewOn = false
+const weightBoneSel = $('#weight-bone')
+if (weightBoneSel) weightBoneSel.innerHTML = JOINT_NAMES.map((n, i) => `<option value="${i}">${i} · ${n}</option>`).join('')
+let rigPartsCache = null
+const loadRigParts = () => {
+  if (!rigPartsCache) {
+    rigPartsCache = fetch('/models/stalker.rig.json', { cache: 'no-store' }).then(async (r) => {
+      if (!r.ok) throw new Error('stalker.rig.json HTTP ' + r.status)
+      const json = await r.json()
+      const dec = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+      return { json, wIdx: dec(json.w4), wVal: dec(json.v4) }
+    })
+  }
+  return rigPartsCache
+}
+const row = (sev, key, val) => {
+  const cls = sev === 'ok' ? 'anal-ok' : (sev === 'err' ? 'anal-err' : 'anal-warn')
+  const mark = sev === 'ok' ? '✓' : '⚠'
+  return `<div class="anal-row"><span class="${cls}">${mark}</span><span class="anal-key">${key}</span><span>${val}</span></div>`
+}
+let analysisTimer = 0
+async function runAnalysis() {
+  const box = $('#analysis-report')
+  if (!box) return
+  if (!isStalkerModel()) { box.innerHTML = '<div class="anal-row"><span class="anal-warn">⚠</span><span>a análise existe só para o Stalker</span></div>'; return }
+  box.innerHTML = '<div class="anal-row"><span class="anal-warn">…</span><span>a medir pesos e segmentos…</span></div>'
+  const lines = []
+  try {
+    const { json } = await loadRigParts()
+    const w = analyzeWeights(json)
+    lines.push(row(w.zero === 0 ? 'ok' : 'err', 'vértices sem influência', w.zero === 0 ? '0 — todos têm peso' : `${w.zero} vértices`))
+    lines.push(row(w.off255 === 0 ? 'ok' : 'warn', 'pesos normalizados', w.off255 === 0 ? `soma=255 em todos os ${w.vcount}` : `${w.off255} verts ≠255 (min ${w.minSum} · máx ${w.maxSum})`))
+    lines.push(row(w.invalidRefs === 0 ? 'ok' : 'err', 'índices de junta', w.invalidRefs === 0 ? '0 inválidos (0..20)' : `${w.invalidRefs} referências`))
+    lines.push(row(w.armLeg / w.vcount < 0.05 ? 'ok' : 'warn', 'cruzados braço↔perna', `${w.armLeg} verts (${(100 * w.armLeg / w.vcount).toFixed(1)}%) — banda mão/coxa`))
+    lines.push(row(w.headDom / w.vcount < 0.15 ? 'ok' : 'warn', 'cabeça dominante', `${w.headDom} verts (${(100 * w.headDom / w.vcount).toFixed(1)}%) — o reskin deu cabeça a 1/3 do corpo`))
+    lines.push(row(w.neckDom > 0 ? 'ok' : 'warn', 'pescoço com pele própria', w.neckDom > 0 ? `${w.neckDom} verts dominantes` : '0 — o pescoço foi absorvido pela cabeça no reskin'))
+  } catch (e) {
+    lines.push(row('err', 'stalker.rig.json', String(e?.message ?? e)))
+  }
+  try {
+    const problems = modelBox
+      ? validateAnchors(state.points, plainBoxFromThree(modelBox))
+      : ['modelo ainda não carregou']
+    if (problems.length) for (const p of problems) lines.push(row('err', 'âncoras', p))
+    else lines.push(row('ok', 'segmentos', 'todas as ligações ≥ 2 cm'))
+  } catch (e) {
+    lines.push(row('err', 'âncoras', String(e?.message ?? e)))
+  }
+  box.innerHTML = lines.join('')
+}
+const scheduleAnalysis = (ms = 250) => { clearTimeout(analysisTimer); analysisTimer = setTimeout(() => { runAnalysis().catch(() => {}) }, ms) }
+
+// ramp 5-paragens (preto→azul→verde→amarelo→vermelho) para a vista de pesos
+const blenderRamp = (t) => {
+  const stops = [[0.0, [5, 6, 10]], [0.25, [0, 0, 200]], [0.5, [0, 200, 0]], [0.75, [255, 240, 0]], [1.0, [255, 0, 0]]]
+  const x = Math.min(1, Math.max(0, t))
+  for (let i = 1; i < stops.length; i++) {
+    if (x <= stops[i][0]) {
+      const [t0, c0] = stops[i - 1], [t1, c1] = stops[i]
+      const k = (x - t0) / (t1 - t0)
+      return [0, 1, 2].map(c => (c0[c] + (c1[c] - c0[c]) * k) / 255)
+    }
+  }
+  return [1, 0, 0]
+}
+const hideBodyForWeights = () => { if (modelRoot) modelRoot.visible = false; if (animator) animator.mesh.visible = false }
+const showBodyAfterWeights = () => { if (animating) { if (animator) animator.mesh.visible = state.showMesh } else if (modelRoot) modelRoot.visible = state.showMesh }
+async function setWeightView(on) {
+  weightViewOn = !!on
+  const btn = $('#btn-weights'), legend = $('#weight-legend')
+  legend.hidden = !weightViewOn
+  if (!on) {
+    if (weightMesh) weightMesh.visible = false
+    showBodyAfterWeights()
+    btn.textContent = 'Ver pesos'
+    return
+  }
+  if (animating) { setStatus('para a ANIMAÇÃO antes de ver os pesos', true); legend.hidden = true; weightViewOn = false; return }
+  if (!isStalkerModel()) { setStatus('a vista de pesos existe só para o Stalker', true); legend.hidden = true; weightViewOn = false; return }
+  btn.disabled = true
+  try {
+    if (!weightMesh) {
+      const glbData = await loadGLB('/models/stalker.glb')
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(glbData.positions), 3))
+      geometry.setAttribute('normal', new THREE.BufferAttribute(Float32Array.from(glbData.normals), 3))
+      geometry.setAttribute('uv', new THREE.BufferAttribute(Float32Array.from(glbData.uvs), 2))
+      geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(glbData.verts * 3), 3).setUsage(THREE.DynamicDrawUsage))
+      const idx = glbData.indices instanceof Uint32Array ? glbData.indices : new Uint32Array(glbData.indices)
+      geometry.setIndex(new THREE.BufferAttribute(idx, 1))
+      weightMesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ vertexColors: true }))
+      weightMesh.frustumCulled = false
+      scene.add(weightMesh)
+    }
+    hideBodyForWeights()
+    weightMesh.visible = true
+    await paintWeights(parseInt(weightBoneSel.value, 10))
+    btn.textContent = '✕ Pesos'
+  } catch (e) {
+    setStatus('vista de pesos falhou: ' + (e?.message ?? e), true)
+    weightViewOn = false
+  } finally {
+    btn.disabled = false
+  }
+}
+async function paintWeights(jointIdx) {
+  if (!weightMesh) return
+  const { wIdx, wVal, json } = await loadRigParts()
+  const attr = weightMesh.geometry.getAttribute('color')
+  for (let v = 0; v < json.vcount; v++) {
+    let w = 0
+    for (let k = 0; k < 4; k++) if (wIdx[v * 4 + k] === jointIdx) w += wVal[v * 4 + k]
+    const [r, g, b] = blenderRamp(w / 255)
+    attr.setXYZ(v, r, g, b)
+  }
+  attr.needsUpdate = true
+}
+$('#btn-weights')?.addEventListener('click', () => { setWeightView(!weightViewOn) })
+weightBoneSel?.addEventListener('change', () => { if (weightViewOn) paintWeights(parseInt(weightBoneSel.value, 10)).catch(() => {}) })
+// ── Exportar GLB skinned (âncoras correntes) ──
+$('#btn-export-glb')?.addEventListener('click', async () => {
+  const btn = $('#btn-export-glb')
+  btn.disabled = true
+  const prev = btn.textContent
+  btn.textContent = 'a exportar…'
+  try {
+    const r = await fetch('/__rig/export', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ points: state.points, normalize: true }),
+    })
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status
+      try { const j = await r.json(); msg = j.error ?? msg } catch {}
+      throw new Error(msg)
+    }
+    const blob = await r.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'stalker.skinned.glb'
+    a.click()
+    URL.revokeObjectURL(a.href)
+    btn.textContent = '✓ exportado'
+    setTimeout(() => { btn.textContent = prev; btn.disabled = false }, 2000)
+  } catch (err) {
+    btn.textContent = prev
+    btn.disabled = false
+    setStatus('exportação falhou: ' + String(err?.message ?? err), true)
+  }
+})
+
+$('#btn-recheck')?.addEventListener('click', () => { loadRigParts().then(() => runAnalysis()).catch(() => {}) })
+$('#btn-normalize')?.addEventListener('click', async () => {
+  try {
+    const { json } = await loadRigParts()
+    const out = normalizeWeights(json)
+    const blob = new Blob([JSON.stringify(out)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'stalker.weights-normalized.json'
+    a.click()
+    URL.revokeObjectURL(a.href)
+    setStatus(`normalização: ${out.normalized} vértices corrigidos para soma=255 — descarregado (o jogo NÃO foi alterado; para aplicar, faz backup de assets/models/stalker.rig.json e substitui)`)
+  } catch (e) {
+    setStatus('normalização falhou: ' + (e?.message ?? e), true)
+  }
+})
+
 // ═══════════════════════ boot ═══════════════════════
 loadDraft()
-buildList('#joint-list', false)
-buildList('#joint-list-3d', true)
+buildList('#joint-list-3d')
 buildLegend()
-setBgToggles()
-window.addEventListener('resize', () => { resize2D(); resize3D() })
-resize2D(); resize3D(); tick()
+scheduleAnalysis(600)
+window.addEventListener('resize', resize3D)
+resize3D(); tick()
 // modelo inicial 3D
 const initial = MODELS[0]
+initSkeletonBuilder({ onStatus: (m, isErr) => setStatus(m, isErr) })
 loadModel(initial.url, initial.name)
 syncListInputs(); refreshJsonPreview()

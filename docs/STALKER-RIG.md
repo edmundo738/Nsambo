@@ -57,9 +57,55 @@ relativos ao corpo), `time`, `dt`.
 
 ## QA
 
-- `node --test test/stalker-rig.test.mjs` — 11/11 · suite completa **102/102**
+- `cd app && npm test` — **91/91** (inclui `test/stalker-rig.test.mjs`: IK, FK, ragdoll, skinning)
 - `node tools/shot-once.mjs out.jpg "autostart=1&gym=1&stalkerdemo=1&stalkerdist=3.0&pitch=0.03"` — screenshot headless
 - `…&stalkerdie=0.35` — dispara o ragdoll 0.35 s após o load (visual da queda)
 - `F3` → painel ACADEMIA · menu **build** → ação «killStalker» (ragdoll)
 - deslocamento bind→dormância auditado vértice a vértice (cabeça/mãos ≤ ~0.2 m,
   dominado pelas constantes de pose intencionais; tronco < 2 cm)
+
+## Auditoria 2026-11-27 — weight painting + limites de pose
+
+**Problemas encontrados (medidos em `assets/models/stalker.rig.json` original):**
+
+| # | Sintoma | Medida antes |
+|---|---|---|
+| 1 | Jaw domina o crânio inteiro (verts dominantes no crânio) | 1474 → **43** (v2) |
+| 2 | Ossos dos braços com peso dentro do crânio (y > 0.46) | 897.1 u → **12.0 u** (massa) |
+| 3 | Pélvis com 0 vértices dominantes; spine1 com 42; neck com 4 | → 327 / 123 / 0 (pescoço fino, de propósito) |
+| 4 | Pés sem atribuição real (footR dominante em 8) | → footL 515 / footR 424 |
+| 5 | Mãos dominadas pelo osso oposto / rádio-assimétricas | L 188 / R 345 (simetria bind) |
+
+**Correção (`tools/reskin_stalker2.py`):**
+pesos top-4 por vértice a partir de cápsulas (segmento+raio) com **suporte
+compacto** (zero fora de d ≤ r·1.22) + **máscaras anatómicas por osso**
+(faixa y, lado ±x, z à frente para a jaw; y ≥ 0.40 pertence **só** a
+head/jaw/neck) + 4 iterações de difusão na malha soldada, gateadas pelas
+máscaras. Nenhuma influência atravessa o crânio/braços desde 2026-11-27.
+
+**Limites de rotação e anti explosão de ossos (`stalker-rig.mjs`):**
+- `env` sanitizado na entrada (NaN/Infinity/±∞ → fallback; speed ≤ 8;
+  hunt01/pounce01/stagger01 ∈ [0,1]; lookYaw ±0.62; lookPitch −0.34..+0.40)
+- `lean` da espinha clampado a [−0.30, +0.30] rad (nunca retroflexa/hipertensa)
+- pescoço segue parcialmente o olhar (yaw ≤ ±0.14, pitch ≤ [−0.12, +0.30]) —
+  a cabeça nunca fica virada em cima de um pescoço estático
+- jaw clampada a ≤ 0.56 rad; pés ≤ ±0.42 rad; braços (ombro) ≤ [−0.9, +1.95] rad
+  e abdução ≤ 0.45 rad; cotovelo já clampado [0.08, 2.4] rad
+- IK de dois ossos inalterado (alvo sempre clampado a reach min/max, pólo bind)
+
+**Gimbal lock:** impossível neste rig — toda a composição é por quaternions
+(`qMul/qX/qY/qZ`), sem ângulos de Euler em sítio nenhum; cada junta guarda só a
+rotação local. O «bloqueio» visual de ombros/pescoço que se podia ver era a
+cabeça absoluta a ignorar a espinha; corrigido com o pescoço a seguir
+parcialmente o olhar (ver acima).
+
+**Validação:** `node app/tools/pose-export.mjs <dir>` (poses OBJ pelo próprio
+rig) + `render_stalker.py --poses` (fotos antes/depois) e `npm test` 91/91.
+Animação em tempo real no rig-align (`/rig-align.html`): botão **«▶ ANIMAÇÃO»**
+na própria aba «3D · Modelo GLB» — corre o mesmo código do jogo sobre o mesmo
+GLB do editor, com o esqueleto derivado **exclusivamente das âncoras A…I2 do
+utilizador** (pesos de `stalker.rig.json` intactos, posições do bind antigas
+ignoradas; espinha/clavículas/ancas/cabeça derivadas por frações fixas e
+documentadas em `app/src/rig-align/animated-stalker.js`). Sem coexistência de
+dois esqueletos; as âncoras editadas durante a animação aplicam-se ao vivo.
+

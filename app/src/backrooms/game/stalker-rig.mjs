@@ -250,22 +250,28 @@ export class StalkerRig {
       return { phase: 0, gait: 0 }
     }
     const s = this.skel
-    const speed = env.speed ?? 0
+    // ── sanitização de inputs (rede de proteção contra NaN/Infinity vindos da IA) ──
+    const fin = (v, d) => (Number.isFinite(v) ? v : d)
+    const speed = clamp(fin(env.speed ?? 0, 0), 0, 8)
     const gait = smooth(speed / 3.4)
-    const hunt01 = clamp01(env.hunt01 ?? 0)
-    const pounce01 = clamp01(env.pounce01 ?? 0)
-    this._stagger = Math.max(0, damp(this._stagger, env.stagger01 ?? 0, 6.5, dt))
+    const hunt01 = clamp01(fin(env.hunt01 ?? 0, 0))
+    const pounce01 = clamp01(fin(env.pounce01 ?? 0, 0))
+    this._stagger = Math.max(0, damp(this._stagger, clamp01(fin(env.stagger01 ?? 0, 0)), 6.5, dt))
     const stagger = this._stagger
-    const phase = ((env.walkDist ?? 0) / 1.52) * Math.PI * 2
-    const time = env.time ?? 0
+    const walkDist = Math.max(0, fin(env.walkDist ?? 0, 0))
+    const phase = (walkDist / 1.52) * Math.PI * 2
+    const time = Math.max(0, fin(env.time ?? 0, 0))
     const state = env.state ?? 'stalk'
+    const lookYawLim = clamp(fin(env.lookYaw ?? 0, 0), -0.62, 0.62)
+    const lookPitchLim = clamp(fin(env.lookPitch ?? 0, 0), -0.34, 0.40)
 
     // ── pelve dinâmica ──
     const bob = Math.abs(Math.cos(phase)) * 0.048 * gait
     const roll = Math.sin(phase) * 0.055 * gait
     const swayX = Math.sin(phase) * 0.045 * gait
     const yawWob = Math.sin(phase * 0.5 + 1.1) * 0.035 * gait
-    const lean = 0.035 + hunt01 * 0.215 - stagger * 0.30 - pounce01 * 0.16
+    // lean clampado — evita espinha hipertensa/retroflexa impossível (artefacto de rig)
+    const lean = clamp(0.035 + hunt01 * 0.215 - stagger * 0.30 - pounce01 * 0.16, -0.30, 0.30)
     s.pelvisOffset = [swayX, bob, 0]
 
     // ── junta a junta, em ordem ──
@@ -277,12 +283,16 @@ export class StalkerRig {
     lq[IX.spine1] = qX(lean * 0.22)
     lq[IX.spine2] = qMul(qX(lean * 0.34 + brPitch * 0.4), qZ(Math.sin(phase + 0.6) * 0.020 * gait))
     lq[IX.spine3] = qMul(qX(lean * 0.30 + brPitch), qZ(Math.sin(phase) * 0.028 * gait))
-    lq[IX.neck] = qMul(qX(lean * 0.20), qZ(Math.sin(time * 0.53 + 0.4) * 0.03 * (1 - gait)))
+    // pescoço segue PARCIALMENTE o olhar (limite ±0.14 yaw / ±0.09 pitch) — a cabeça
+    // nunca fica 90° virada em cima de um pescoço parado (parece «cabeça destacada»)
+    const neckYaw = clamp(lookYawLim * 0.22, -0.14, 0.14)
+    const neckPitch = clamp(lean * 0.20 + lookPitchLim * 0.16, -0.12, 0.30)
+    lq[IX.neck] = qMul(qY(neckYaw), qMul(qX(neckPitch), qZ(Math.sin(time * 0.53 + 0.4) * 0.03 * (1 - gait))))
 
     // ── cabeça: alvo absoluto + limites + saccades ──
     const sac = Math.sin(time * 6.7 + this._sacca) * 0.006 + Math.sin(time * 11.3 + this._sacca * 2.3) * 0.004
-    const relYaw = clamp((env.lookYaw ?? 0) + sac, -0.62, 0.62)
-    const relPitch = clamp((env.lookPitch ?? 0) + Math.sin(time * 9.1 + this._sacca) * 0.004, -0.34, 0.40)
+    const relYaw = clamp(lookYawLim + sac, -0.62, 0.62)
+    const relPitch = clamp(lookPitchLim + Math.sin(time * 9.1 + this._sacca) * 0.004, -0.34, 0.40)
     const tilt = clamp(relYaw, -1, 1) * 0.17
     const hx = -relPitch - stagger * 0.34 + pounce01 * 0.14
     lq[IX.head] = null // resolvida depois de avaliar o pescoço (absoluto)
@@ -305,7 +315,7 @@ export class StalkerRig {
     const jawTarget = Math.max(jawBase, pounce01 * 1.0, stagger > 0.25 ? 0.12 : 0)
     const rate = jawTarget > this._jaw ? 0.09 : 0.30
     this._jaw = damp(this._jaw, jawTarget, 1 / rate, dt)
-    lq[IX.jaw] = qX(this._jaw * 0.42 + Math.sin(time * 1.15) * 0.022 * this._jaw)
+    lq[IX.jaw] = qX(clamp(this._jaw * 0.42 + Math.sin(time * 1.15) * 0.022 * this._jaw, 0, 0.56))
     s.eval(IX.jaw)
     s.eval(IX.clavL); s.eval(IX.clavR)
 
@@ -331,7 +341,7 @@ export class StalkerRig {
       lq[loI] = boneLocalQ(s.worldQ[upI], s.boneDir[loI], sol.dirB)
       s.eval(loI)
       // pé achatado + pitch de passada
-      const footPitch = Math.sin(sp + 0.55) * 0.34 * maxGait - 0.04 + (1 - gait) * 0.0
+      const footPitch = clamp(Math.sin(sp + 0.55) * 0.34 * maxGait - 0.04, -0.42, 0.42)
       const desired = qMul(qY(0), qX(footPitch))
       lq[ftI] = qMul(qConj(s.worldQ[loI]), desired)
       s.eval(ftI)
@@ -347,7 +357,7 @@ export class StalkerRig {
       const swing = Math.sin(sp) * 0.55 * gait
       const out = side * (0.13 + 0.10 * gait)
       const huntReach = hunt01 * 0.52 + pounce01 * 1.15 - stagger * 0.85
-      lq[uaI] = qMul(qY(out), qX(swing + huntReach))
+      lq[uaI] = qMul(qY(clamp(out, 0.03, 0.45)), qX(clamp(swing + huntReach, -0.9, 1.95)))
       s.eval(uaI)
       const bend = 0.30 + gait * (0.42 + 0.38 * Math.sin(sp + 1.15)) + hunt01 * 0.55 + pounce01 * 0.80 - stagger * 0.35
       lq[faI] = qMul(qY(side * 0.14 * gait), qX(clamp(bend, 0.08, 2.4)))

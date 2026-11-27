@@ -191,7 +191,7 @@ def cmd_poses(pose_dir, out_dir):
         st.name = 'pose_mesh'
         st.rotation_euler = (math.radians(90), 0, 0)   # OBJ sai em glTF Y-up — roda para Z-up
         assign_material(st, mat)
-        setup_lights_and_ground(); setup_cycles(80, 960, 540)
+        setup_lights_and_ground(); setup_cycles(64, 960, 540)
         sc = bpy.context.scene
         bpy.context.view_layer.update()
         from mathutils import Vector
