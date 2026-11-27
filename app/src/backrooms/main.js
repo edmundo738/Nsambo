@@ -58,6 +58,7 @@ const QA_SWING = params.has('qaswing') ? Number(params.get('qaswing')) : null   
 const QA_HP = params.has('qahp') ? Number(params.get('qahp')) : null   // QA: vida inicial forçada (validação do ecrã de dano)
 const QA_STALKERDEMO = params.has('stalkerdemo')   // validação: stalker à frente do jogador, em espreita
 const QA_STALKER_DIST = (() => { const v = parseFloat(params.get('stalkerdist') ?? ''); return Number.isFinite(v) ? v : null })()   // QA: distância-alvo do spawn do stalker
+const QA_STALKERDIE = (() => { const v = parseFloat(params.get('stalkerdie') ?? ''); return Number.isFinite(v) ? v : null })() // QA: dispara o ragdoll aos N segundos
 const AUTOSTART = params.has('autostart') || QA_STALKERDEMO
 
 const EYE_FALLBACK = 1.62
@@ -101,6 +102,7 @@ class Game {
       isGodBattery: () => this._godBattery,
       toggleGodBattery: () => { this._godBattery = !this._godBattery; this.hud.toast(this._godBattery ? 'BATERIA INFINITA LIGADA' : 'BATERIA INFINITA DESLIGADA') },
       stalker: () => this._setupStalkerDemo(6),
+      killStalker: () => { if (this.stalker) { this.stalker.die(0.6, -0.8, 4.8); this.hud.toast('RAGDOLL (DEBUG)') } },
       giveKey: () => { this.puzzle = { ...(this.puzzle ?? {}), hasKey: true, keyTaken: true }; this._keyDiscovered = true; this.hud.toast('CHAVE DADA (DEBUG)') },
       removeKey: () => { this.puzzle = { ...(this.puzzle ?? {}), hasKey: false, keyTaken: false }; this.hud.toast('CHAVE REMOVIDA') },
       restorePower: () => { this._fuseInstalled = true; this._powerOn = true; this.hud.toast('QUADRO ELÉTRICO RESTAURADO') },
@@ -213,7 +215,7 @@ class Game {
     try {
       this.stalkerAssets = await StalkerEntity.loadAssets(import.meta.env.BASE_URL)
       await this.renderer.setDynamicModel('stalker', this.stalkerAssets.glb)
-      console.log('stalker: white_mesh definitivo — 12 mil tris, rig procedural (respira/anda/mandíbula)')
+      console.log('stalker: white_mesh definitivo — 12 mil tris, esqueleto 21 juntas + IK por passada + ragdoll')
       if (this.lvl) this._spawnStalker()
       if (QA_STALKERDEMO) this._setupStalkerDemo()
     } catch (e) {
@@ -581,7 +583,8 @@ class Game {
       else if (prev < KNIFE_IMPACT_T && this._knife.t >= KNIFE_IMPACT_T) this._knifeImpact(cam)
     }
     if (this.stalker) {
-      const s = this.stalker.update(dt, { dt, px: cam.eyeX, pz: cam.eyeZ, noise: noiseNow, time, crouch: this.player.crouch })
+      if (QA_STALKERDIE != null) { this._qaDieT = (this._qaDieT ?? 0) + dt; if (this._qaDieT >= QA_STALKERDIE && !this.stalker.rig?.ragdoll) this.stalker.die(0.55, -0.85, 4.8) }
+      const s = this.stalker.update(dt, { dt, px: cam.eyeX, py: cam.eyeY ?? EYE_FALLBACK, pz: cam.eyeZ, noise: noiseNow, time, crouch: this.player.crouch })
       const creepable = s.state !== 'dormant' && s.state !== 'gone'
       this.audio.setStalkerBreath(creepable ? Math.max(0, Math.min(1, 1.35 - s.distance / 9.5)) : 0)
       for (const ev of s.events) this._onStalkerEvent(ev)
@@ -792,7 +795,8 @@ class Game {
           this.audio.knifeHitFlesh()
           this.hud.hitmarker()
           this._shake = Math.max(this._shake, 0.30)
-          if (res === 'dead') { st.sinkT = 0; st.sinkY = 0; this.hud.toast('ELE CAIU.', 2.6) }
+          if (res === 'dead') { st.die(kbx, kbz, 4.8); this.hud.toast('ELE CAIU.', 2.6) }
+          else if (res === 'stagger') st.stagger()
           return
         }
       }
@@ -813,6 +817,7 @@ class Game {
         this._jumpscared = true
         break
       case 'pounce': {
+        this.stalker?.strike(this.player.x, this.player.z)   // salto para a cara — pounce visual
         damageHealth(this.health, 58)   // dois pounces sem tratamento = morte
         this.hud.damageFlash()
         if (this.health.hp <= 0) {
