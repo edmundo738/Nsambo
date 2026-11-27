@@ -89,6 +89,24 @@ export class StalkerEntity {
   }
 
   update(dt, env) {
+    // ── morto: o cérebro congela — o cadáver fica onde caiu (o ragdoll manda) ──
+    // (antes o AI continuava a vaguear com a entidade e o corpo deslizava no chão;
+    //  distância/F3 também ficavam presos ao último estado vivo)
+    if (this.rig.ragdoll) {
+      const b = this.brain
+      const px = env?.px, pz = env?.pz
+      const dist = Number.isFinite(px) && Number.isFinite(pz) ? Math.hypot(px - b.x, pz - b.z) : (b.distance ?? 0)
+      b.speed = 0
+      b.distance = dist
+      const out = {
+        state: 'die', x: b.x, z: b.z, yaw: b.yaw,
+        speed: 0, distance: dist, inSight: false,
+        confidence: 0, memoryAge: b.memAge ?? Infinity, events: [],
+      }
+      this.present = this.sinkT !== -2
+      this._deform(dt, env, out, false)   // far=false: o ragdoll precisa de update+skin todos os frames
+      return out
+    }
     // LOD de IA: longe (>22 m) pensa a ~7 Hz acumulando o dt
     this._aiAcc = (this._aiAcc ?? 0) + dt
     const far = this.brain.distance > 22
@@ -126,6 +144,8 @@ export class StalkerEntity {
 
   _deform(dt, env, out, far) {
     const time = env?.time ?? 0
+    // já desfeito: não gasta skinning/physics num cadáver que já sumiu
+    if (this.sinkT === -2) { this.present = false; this.sinkY = -1.9; return }
     const brain = this.brain
     const speed = brain.speed
     this.walkDist += speed * dt
@@ -168,7 +188,7 @@ export class StalkerEntity {
     }
 
     // ── afundar e sair (pounce-vanish ou ragdoll assentado) ──
-    if (this.rig.ragdoll && this.rig.ragdoll.settled && this.sinkT < 0) this.sinkT = 0
+    if (this.rig.ragdoll && this.rig.ragdoll.settled && this.sinkT === -1) this.sinkT = 0
     if (this.sinkT >= 0) {
       this.sinkT += dt
       const fade = this.rig.ragdoll ? 1.6 : 1.35

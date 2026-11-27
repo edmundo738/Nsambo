@@ -476,6 +476,15 @@ class Game {
   _debugTick(dt) {
     const p = this.player
     const st = this.stalker
+    // distância real medida aqui (nunca o cache `brain.distance`, que podia ficar
+    // preso em 999 no arranque ou no último estado vivo depois da morte)
+    const stalkerLine = (() => {
+      if (!st || !st.present) return 'ausente'
+      const dist = (p && Number.isFinite(st.brain?.x)) ? Math.hypot(st.brain.x - p.x, st.brain.z - p.z) : NaN
+      const dTxt = Number.isFinite(dist) ? `${dist.toFixed(1)} m` : '— m'
+      if (st.rig?.ragdoll) return `${dTxt} · ${st.sinkT >= 0 ? 'a afundar' : 'morto'}`
+      return `${dTxt} · ${st.brain?.state ?? '?'}`
+    })()
     const info = {
       seed: this.seed,
       map: this.mapKind === 'gym' ? 'ACADEMIA' : this.mapKind === 'devmap' ? 'GALERIA DEV' : 'LOBBY 0',
@@ -490,7 +499,7 @@ class Game {
       doorProgress: this.doorProgress,
       hasKey: !!this.puzzle?.hasKey,
       powerOn: !!this._powerOn,
-      stalker: st && st.present ? `${(st.brain?.distance ?? 0).toFixed(1)} m · ${st.brain?.state ?? '?'}` : 'ausente',
+      stalker: stalkerLine,
       vida: Math.round(this.health.hp),
     }
     this.debugPanel.update(dt, info)
@@ -498,7 +507,8 @@ class Game {
 
   _loop(t) {
     requestAnimationFrame(this._loop)
-    const dt = Math.min(0.05, this._last ? (t - this._last) / 1000 : 0.016)
+    const rawDt = this._last ? (t - this._last) / 1000 : 0.016
+    const dt = Math.min(0.05, rawDt)
     this._last = t
     this.frameCount = (this.frameCount ?? 0) + 1
     // métricas completas (só lidas com ?debug): buffer de tempos de quadro em ms
@@ -519,16 +529,19 @@ class Game {
         const q = (p) => a[Math.min(a.length - 1, Math.floor(p * a.length))]
         let over16 = 0, over33 = 0
         for (const v of a) { if (v > 33.33) over33++; else if (v > 16.67) over16++ }
-        dbg.textContent = `${this.renderer.fps.toFixed(0)} FPS · p95 ${q(0.95).toFixed(1)}ms · p99 ${q(0.99).toFixed(1)}ms · máx ${this._ftMax.toFixed(1)}ms · >16.7:${over16} >33.3:${over33} · SEED ${this.lvl?.seed} · ABC ${this.lvl?.openCount} · MDF ${this.lvl?.maxDist} · ST ${this.stalker?.brain.state ?? '—'} ${this.stalker ? this.stalker.brain.distance.toFixed(1) + 'm' : ''}`
+        const stalkerState = this.stalker ? (this.stalker.rig?.ragdoll ? 'die' : this.stalker.brain.state) : '—'
+        const pl = this.player
+        const stalkerDist = this.stalker && pl ? (Math.hypot(this.stalker.brain.x - pl.x, this.stalker.brain.z - pl.z)).toFixed(1) + 'm' : ''
+        dbg.textContent = `${this.renderer.fps.toFixed(0)} FPS · p95 ${q(0.95).toFixed(1)}ms · p99 ${q(0.99).toFixed(1)}ms · máx ${this._ftMax.toFixed(1)}ms · >16.7:${over16} >33.3:${over33} · SEED ${this.lvl?.seed} · ABC ${this.lvl?.openCount} · MDF ${this.lvl?.maxDist} · ST ${stalkerState} ${stalkerDist}`
         this._ftMax = 0
       }
     }
-    if (this.state === 'playing' && !this.devMenu.open) this._update(dt, t / 1000)
+    if (this.state === 'playing' && !this.devMenu.open) this._update(dt, t / 1000, rawDt)
     this._render(t / 1000)
     this._debugTick(dt)
   }
 
-  _update(dt, time) {
+  _update(dt, time, rawDt = dt) {
     const player = this.player, lvl = this.lvl, built = this.built
     this.playTime += dt
     const cam = player.update(dt, this.input)
@@ -583,7 +596,7 @@ class Game {
       else if (prev < KNIFE_IMPACT_T && this._knife.t >= KNIFE_IMPACT_T) this._knifeImpact(cam)
     }
     if (this.stalker) {
-      if (QA_STALKERDIE != null) { this._qaDieT = (this._qaDieT ?? 0) + dt; if (this._qaDieT >= QA_STALKERDIE && !this.stalker.rig?.ragdoll) this.stalker.die(0.55, -0.85, 4.8) }
+      if (QA_STALKERDIE != null) { this._qaDieT = (this._qaDieT ?? 0) + rawDt; if (this._qaDieT >= QA_STALKERDIE && !this.stalker.rig?.ragdoll) this.stalker.die(0.55, -0.85, 4.8) }
       const s = this.stalker.update(dt, { dt, px: cam.eyeX, py: cam.eyeY ?? EYE_FALLBACK, pz: cam.eyeZ, noise: noiseNow, time, crouch: this.player.crouch })
       const creepable = s.state !== 'dormant' && s.state !== 'gone'
       this.audio.setStalkerBreath(creepable ? Math.max(0, Math.min(1, 1.35 - s.distance / 9.5)) : 0)
@@ -1111,7 +1124,11 @@ const boot = async () => {
     renderer.setTextures(textures)
     window.__game = new Game(renderer)
     window.__READY = true   // gancho para ferramentas headless (QA/captura) — sem efeito no jogo
-    $('loading').classList.add('done')
+    const loadingEl = $('loading')
+    loadingEl?.classList.add('done')
+    // A2: o overlay não pode persistir depois da sala estar jogável —
+    // transição de 0.8 s e depois SAI do DOM de vez (nunca mais interceta cliques/visual)
+    if (loadingEl) setTimeout(() => loadingEl.remove(), 900)
     if (AUTOSTART) {
       try { window.__game._start() } catch (e) { console.error('autostart:', e) }
     }

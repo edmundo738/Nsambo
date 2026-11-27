@@ -147,7 +147,7 @@ body { font-family: "Courier New", ui-monospace, Menlo, monospace; color: var(--
 
 /* ── loading ── */
 #loading { position: fixed; inset: 0; z-index: 9; background: var(--bg); display: flex; align-items: center; justify-content: center; flex-direction: column; transition: opacity .8s; }
-#loading.done { opacity: 0; pointer-events: none; }
+#loading.done { opacity: 0; pointer-events: none; visibility: hidden; }
 #loading .l-big { font-size: 15px; letter-spacing: .6em; color: var(--amber); animation: pulse 1.6s ease-in-out infinite; }
 #loading-tip { margin-top: 18px; font-size: 9px; letter-spacing: .35em; color: var(--amber-dim); }
 @keyframes pulse { 50% { opacity: .35; } }

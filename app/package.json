@@ -1,7 +1,7 @@
 {
   "name": "nsambo-ambiente",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Nsambo — estudo arquitetónico 3D realista (Fase 1: o edifício)",
   "scripts": {

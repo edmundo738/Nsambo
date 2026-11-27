@@ -43,3 +43,7 @@ app/tools/.blender-libs/
 # preview local de ativos (harness próprio desta máquina)
 /preview/
 app/tools/shot-preview.tmp.mjs
+
+# artefactos de distribuição (ficam só no Release/disco local)
+NSAMBO-THE-BACKROOMS-*-web.zip
+NSAMBO-THE-BACKROOMS-*-Windows-setup.exe

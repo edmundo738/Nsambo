@@ -242,7 +242,11 @@ export class StalkerRig {
   update(dt, env) {
     if (this.ragdoll) {
       this.ragdoll.update(dt)
+      this._ragAge = (this._ragAge ?? 0) + dt
       if (this.ragdoll.settled) this._settleT += dt
+      // fallback determinístico: após 4 s de ragdoll, considera-se assentado mesmo que
+      // o solver ainda respire micro-movimento (o limiar de 0.0045 nunca era atingido)
+      else if (this._ragAge > 4) { this.ragdoll.settled = true; this.settled = true }
       return { phase: 0, gait: 0 }
     }
     const s = this.skel
@@ -365,6 +369,7 @@ export class StalkerRig {
     this.ragdoll = new StalkerRagdoll(s, kbX, kbZ, strength)
     this.settled = false
     this._settleT = 0
+    this._ragAge = 0
   }
 
   // peleja os vértices: out* ← skinned
@@ -484,11 +489,12 @@ export class StalkerRagdoll {
         }
       }
     }
-    // assentamento
+    // assentamento — limiar de movimento por junta e relógio de idade (um dos dois assenta)
+    this.age = (this.age ?? 0) + dt
     let mv = 0
     for (let i = 0; i < n; i++) mv += Math.abs(p[i][0] - pv[i][0]) + Math.abs(p[i][1] - pv[i][1]) + Math.abs(p[i][2] - pv[i][2])
-    if (mv / n < 0.0045) this._still += dt; else this._still = 0
-    if (this._still > 0.7) this.settled = true
+    if (mv / n < 0.02) this._still += dt; else this._still = 0
+    if (this._still > 0.5 || this.age > 4) this.settled = true
     // reconstrui orientações: nós com filhos rodam por qFromTo(fwd_antiga, fwd_nova)
     const skel = this.skel
     for (let i = 0; i < n; i++) {
