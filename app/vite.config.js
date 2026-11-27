@@ -18,6 +18,18 @@ function rigAlignSave() {
   return {
     name: 'rig-align-save',
     configureServer(server) {
+      // Preview do Arena abre na raiz (/) — dev-only: vai direito ao editor de articulações.
+      // O BNA continua acessível em /index.html e o jogo em /backrooms.html.
+      server.middlewares.use('/', (req, res, next) => {
+        const path = (req.url ?? '').split('?')[0].replace(/^\//, '') // connect monta em '/': '/' fica '' e '/?x' fica '?x' à entrada
+        if (req.method === 'GET' && path === '') {
+          res.statusCode = 302
+          res.setHeader('location', '/rig-align.html')
+          res.end()
+          return
+        }
+        next()
+      })
       server.middlewares.use('/__rig/save', async (req, res) => {
         res.setHeader('content-type', 'application/json')
         if (req.method !== 'POST') { res.statusCode = 405; res.end('{"ok":false,"error":"POST only"}'); return }
