@@ -231,7 +231,7 @@ in vec2 vUV;
 out vec4 fragColor;
 uniform sampler2D tScene;
 uniform vec2 uRes;
-uniform float uTime, uGrain, uVignette, uLevels, uPulse, uTorchI;
+uniform float uTime, uGrain, uVignette, uLevels, uPulse, uTorchI, uBlood;
 uniform vec2 uTorchUV;
 const mat4 BAYER = mat4(
    0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
@@ -293,9 +293,12 @@ void main() {
   float d = distance(vUV, vec2(0.5));
   // pulso cardíaco sob stress (fôlego no limite) — a vinheta fecha e palpita
   float beat = pow(0.5 + 0.5 * sin(uTime * (5.0 + uPulse * 4.5)), 6.0);
-  float pv = uVignette * (0.72 + 0.42 * uPulse) + uPulse * beat * 0.30;
+  // vida crítica: a vinheta fica vermelha viva e palpita (batida), tira a cor à cena
+  vec3 edgeCol = mix(vec3(0.23, 0.11, 0.31), vec3(0.35, 0.045, 0.05), uBlood);
+  float pv = uVignette * (0.72 + 0.42 * uPulse) + uPulse * beat * (0.30 + 0.34 * uBlood);
   c *= 1.0 - pv * smoothstep(0.40, 0.98, d);
-  c = mix(c, vec3(0.23, 0.11, 0.31), uVignette * smoothstep(0.60, 1.02, d) * 0.45);
+  c = mix(c, edgeCol, uVignette * smoothstep(0.60, 1.02, d) * mix(0.45, 0.92, uBlood));
+  c = mix(c, c * vec3(1.22, 0.58, 0.54), uBlood * (0.34 + 0.30 * beat));
   // ── banda rolante de obturador/refresh — lenta, subtil ──
   float band = sin((vUV.y - uTime * 0.052) * 6.2831 + sin(uTime * 0.13) * 0.8);
   c *= 1.0 + band * 0.045;

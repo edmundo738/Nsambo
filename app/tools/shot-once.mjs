@@ -17,7 +17,8 @@ const browser = await playwright.launch({
 const page = await browser.newPage({ viewport: { width: 1200, height: 750 } })
 page.on('console', (m) => { if (m.type() === 'error') console.error('[console]', m.text()) })
 page.on('pageerror', (e) => console.error('[pageerror]', e.message))
-await page.goto(`http://localhost:5173/backrooms.html?${process.argv[3]}`, { waitUntil: 'load', timeout: 60000 })
+const baseUrl = process.env.SHOT_URL || 'http://localhost:5173/backrooms.html'
+await page.goto(`${baseUrl}?${process.argv[3]}`, { waitUntil: 'load', timeout: 60000 })
 await page.waitForFunction(() => window.__game !== undefined, { timeout: 60000 })
 await page.waitForTimeout(2500)
 await page.screenshot({ path: process.argv[2] })

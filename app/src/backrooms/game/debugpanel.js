@@ -17,7 +17,7 @@ export class DebugPanel {
       'position:fixed', 'right:10px', 'top:64px', 'z-index:9999', 'pointer-events:none',
       'font:11px/1.55 "Courier New", monospace', 'color:#a7f3a0',
       'background:rgba(5,10,5,0.78)', 'border:1px solid rgba(140,255,150,0.35)',
-      'padding:6px 9px', 'border-radius:3px', 'white-space:pre', 'min-width:230px',
+      'padding:6px 9px', 'border-radius:3px', 'white-space:pre', 'width:max-content', 'max-width:calc(100vw - 20px)',
       'text-shadow:0 0 4px rgba(120,255,120,0.4)', 'display:none',
     ].join(';')
     document.body.appendChild(el)
@@ -44,6 +44,7 @@ export class DebugPanel {
       `YAW ${info.yawDeg.toFixed(0)}° · ${info.sprinting ? 'A CORRER' : 'A ANDAR'}`,
       `BATERIA ${(info.battery * 100).toFixed(0)}% · LANTERNA ${info.flashlightOn ? 'LIGADA' : 'APAGADA'}`,
       `FÔLEGO ${(info.stamina * 100).toFixed(0)}%${info.exhausted ? ' · EXAUSTO' : ''}`,
+      `VIDA ${info.vida}%${info.vida < 35 ? ' · CRÍTICO' : ''}`,
       `PORTA ${(info.doorProgress * 100).toFixed(0)}% · CHAVE ${info.hasKey ? 'NO BOLSO' : 'NÃO APANHADA'}`,
       `QUADRO ${info.powerOn ? 'RESTAURADO' : 'POR RESTAURAR'} · STALKER ${info.stalker}`,
     ]

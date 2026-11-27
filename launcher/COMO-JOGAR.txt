@@ -28,10 +28,14 @@ SE O WINDOWS SMARTSCREEN AVISAR:
 
 CONTROLOS
   WASD andar · SHIFT correr · ESPAÇO saltar · E interagir
+  LMB (botão esquerdo) facada — ataca na direção da mira
   F lanterna · M mini-mapa · Esc libertar rato
 
 OBJETIVO
   Encontra a chave. Abre a porta SAÍDA. Sobrevive ao amarelo.
+  Ele ouve o ferro — o golpe da faca atrai o stalker. Cuida da VIDA:
+  quando a barra estiver curta, as bordas pulsam e o coração dispara.
+  O medkit devolve vida. Três facadas no peito derrubam o stalker para sempre.
 
 A ENCONTRAR BUGS?
   Abre uma Issue: https://github.com/edmundo738/Nsambo/issues

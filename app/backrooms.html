@@ -12,6 +12,8 @@
   <canvas id="gl"></canvas>
   <div id="edge-vignette"></div>
   <div id="scanlines"></div>
+  <div id="dmg-flash"></div>
+  <div id="lowhp-vignette"></div>
 
   <!-- HUD -->
   <div id="hud" class="hidden">
@@ -20,7 +22,12 @@
     <div id="objective">EXPLORE A SALA. ENCONTRE A CHAVE.</div>
     <div id="toast"></div>
     <div id="crosshair"></div>
+    <div id="hitmarker"><span></span><span></span><span></span><span></span></div>
     <div id="prompt"></div>
+    <div class="meter" id="health-wrap">
+      <div class="label">VIDA</div>
+      <div class="track"><div class="fill" id="health-fill" style="width:100%"></div></div>
+    </div>
     <div class="meter" id="stamina-wrap">
       <div class="label">FÔLEGO</div>
       <div class="track"><div class="fill" id="stamina-fill" style="width:100%"></div></div>
@@ -46,8 +53,8 @@
     <div class="controls">
       <div><b>W A S D</b> mover &nbsp;·&nbsp; <b>RATO</b> olhar</div>
       <div><b>SHIFT</b> correr (fôlego) &nbsp;·&nbsp; <b>SPACE</b> saltar &nbsp;·&nbsp; <b>C</b> agachar</div>
-      <div><b>E</b> interagir &nbsp;·&nbsp; <b>F</b> lanterna</div>
-      <div><b>M</b> mapa &nbsp;·&nbsp; <b>LMB</b> usar ferramenta &nbsp;·&nbsp; <b>Q</b> ferramenta</div>
+      <div><b>E</b> interagir &nbsp;·&nbsp; <b>F</b> lanterna &nbsp;·&nbsp; <b>LMB</b> facada</div>
+      <div><b>M</b> mapa &nbsp;·&nbsp; <b>Q</b> —</div>
       <div><b>ESC</b> pausa</div>
     </div>
     <button class="btn" id="btn-start">ACORDAR</button>
@@ -73,7 +80,7 @@
     <div class="pause-sub">O QUARTO ESPERA</div>
     <div class="controls" style="margin-top:24px">
       <div><b>W A S D</b> mover · <b>SHIFT</b> correr · <b>SPACE</b> saltar</div>
-      <div><b>E</b> interagir · <b>F</b> lanterna · <b>M</b> mapa · <b>ESC</b> continuar</div>
+      <div><b>E</b> interagir · <b>F</b> lanterna · <b>LMB</b> facada · <b>M</b> mapa · <b>ESC</b> continuar</div>
     </div>
     <button class="btn" id="btn-resume">CONTINUAR</button>
     <button class="btn ghost" id="btn-restart">RECOMEÇAR (MESMA SEMENTE)</button>

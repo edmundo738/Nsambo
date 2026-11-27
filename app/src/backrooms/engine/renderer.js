@@ -57,7 +57,7 @@ export class Renderer {
     this.progDust = link(gl, VS_DUST, FS_DUST)
     this.uCone = uniforms(gl, this.progCone, ['uViewProj', 'uModel', 'uColor', 'uIntensity', 'uTime', 'uCamPos'])
     this.uDust = uniforms(gl, this.progDust, ['uViewProj', 'uCamPos', 'uBox', 'uTime'])
-    this.uPost = uniforms(gl, this.progPost, ['tScene', 'uRes', 'uTime', 'uGrain', 'uVignette', 'uLevels', 'uPulse', 'uTorchUV', 'uTorchI'])
+    this.uPost = uniforms(gl, this.progPost, ['tScene', 'uRes', 'uTime', 'uGrain', 'uVignette', 'uLevels', 'uPulse', 'uTorchUV', 'uTorchI', 'uBlood'])
     // cone unitário + sementes de poeira
     this._unitCone = buildShaft()
     this._coneVao = gl.createVertexArray()
@@ -343,6 +343,11 @@ export class Renderer {
         gl.bindVertexArray(this.mesh_key.vao)
         gl.drawElements(gl.TRIANGLES, this.mesh_key.indexCount, gl.UNSIGNED_INT, 0)
       }
+      if (frame.knifeMatrix && this.mesh_knife) {
+        this._bindMaterial({ ...this.mesh_knife, material: 'modelKnife', model: frame.knifeMatrix })
+        gl.bindVertexArray(this.mesh_knife.vao)
+        gl.drawElements(gl.TRIANGLES, this.mesh_knife.indexCount, gl.UNSIGNED_INT, 0)
+      }
       gl.uniformMatrix4fv(this.uMain.uViewProj, false, frame.viewProj)
     }
 
@@ -362,6 +367,7 @@ export class Renderer {
     gl.uniform1f(this.uPost.uPulse, frame.pulse ?? 0)
     gl.uniform2f(this.uPost.uTorchUV, frame.torchUV?.[0] ?? 0.5, frame.torchUV?.[1] ?? 0.5)
     gl.uniform1f(this.uPost.uTorchI, frame.torchI ?? 0)
+    gl.uniform1f(this.uPost.uBlood, frame.blood ?? 0)
     gl.bindVertexArray(this.postVao)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.enable(gl.DEPTH_TEST)
@@ -583,6 +589,16 @@ export class Renderer {
         gl.uniform3f(u.uEmissiveColor, 1.0, 0.58, 0.15)
         gl.uniform1f(u.uEmissive, 1.35)
         break
+      case 'modelKnife': {
+        bindSet(this.textures.knife)               // knife{.jpg,.normal.jpg,.roughness.jpg,.ao.jpg,.height.jpg}
+        gl.uniform1f(u.uRoughness, 1.0)            // roughness por mapa (lâmina fosca, cabo espelhado)
+        gl.uniform1f(u.uMetallic, 0.40)            // verniz de mogno + aço — verniz manda
+        gl.uniform3f(u.uAlbedoTint, 1.18, 1.14, 1.08)
+        gl.uniform3f(u.uEmissiveColor, 1.0, 0.90, 0.78)
+        gl.uniform1f(u.uEmissive, 0.16)            // lift quente do viewmodel (como a lanterna)
+        gl.uniform1f(u.uPomScale, 0)
+        break
+      }
       case 'modelStalker': {
         bindSet(this.textures.stalker)
         if (T.stalkerEmissive) {

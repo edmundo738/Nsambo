@@ -12,12 +12,25 @@ import { pickVioletPos } from './game/violet.js'
 import { mat4 } from './engine/math.js'
 import { LEVEL1 } from './levels/level1.js'
 import { loadGLB } from './engine/gltf.js'
-import { flashLocal, viewmodelProj, FLASH_TIP } from './game/viewmodel.js'
+import { flashLocal, viewmodelProj, FLASH_TIP, knifeLocal, KNIFE_IMPACT_T, KNIFE_SWING_SECONDS } from './game/viewmodel.js'
+import { createHealth, damageHealth, healHealth, updateHealth, lowHealthPulse, heartbeatInterval, HEALTH_MAX } from './game/health.mjs'
 import { buildGymLevel, GYM_SEED } from './levels/gym.js'
 import { buildDevMapLevel, DEVMAP_SEED } from './levels/devmap.js'
 import { DebugPanel } from './game/debugpanel.js'
 import { DevMenu } from './game/devmenu.js'
 
+// DDA grosso no plano XZ — true se o raio atinge uma célula fechada/fora do mundo (parede)
+function raycastCells(cells, size, eye, dir, maxDist) {
+  if (!cells || !size) return false
+  const step = 0.08
+  for (let t = 0.18; t <= maxDist; t += step) {
+    const x = eye[0] + dir[0] * t, z = eye[2] + dir[2] * t
+    const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL)
+    if (cx < 0 || cz < 0 || cx >= size || cz >= size) return true
+    if (cells[cz * size + cx] !== 1) return true
+  }
+  return false
+}
 const $ = (id) => document.getElementById(id)
 const params = new URLSearchParams(window.location.search)
 const DEBUG = params.has('debug')
@@ -41,6 +54,8 @@ const QA_DEVMAP = params.has('devmap') // GALERIA DEV — mapa com todos os ativ
 const QA_BUILDMENU = params.has('buildmenu')   // abre o menu de desenvolvedor automaticamente (QA)
 const QA_DEBUG = params.has('debug')   // painel de diagnóstico ligado por omissão (F3 liga/desliga)
 const QA_QADEATH = params.has('qadeath')     // QA: ecrã de morte após 1.5 s (validação visual)
+const QA_SWING = params.has('qaswing') ? Number(params.get('qaswing')) : null   // QA: congela o golpe da faca num instante (0..1)
+const QA_HP = params.has('qahp') ? Number(params.get('qahp')) : null   // QA: vida inicial forçada (validação do ecrã de dano)
 const QA_STALKERDEMO = params.has('stalkerdemo')   // validação: stalker à frente do jogador, em espreita
 const QA_STALKER_DIST = (() => { const v = parseFloat(params.get('stalkerdist') ?? ''); return Number.isFinite(v) ? v : null })()   // QA: distância-alvo do spawn do stalker
 const AUTOSTART = params.has('autostart') || QA_STALKERDEMO
@@ -117,6 +132,10 @@ class Game {
     this._armSpeed = 0
     this.stalker = null
     this.stalkerAssets = null
+    this.health = createHealth(HEALTH_MAX)
+    this._knife = { t: -1, cd: 0 }
+    this._knifeReady = false
+    this._heartTimer = 0
     this._noisePulse = 0
     this._shake = 0
     this._heartAcc = 0
@@ -180,6 +199,11 @@ class Game {
         try { await this.renderer.setModel(name, await loadGLB(base + file)) }
         catch (e) { console.warn('adereço em falta:', file, e) }
       }
+      try {
+        await this.renderer.setModel('knife', await loadGLB(base + 'knife.glb'))
+        this._knifeReady = true
+        console.log('faca: white_mesh Hunyuan — 78 mil tris — lâmina prata fosca, cabo mogno, «EU SOU» incrustado')
+      } catch (e) { console.error('faca não carregou — o jogo continua sem lâmina:', e) }
       this.modelsReady = true
       console.log('modelos carregados — chave:', key.verts, 'verts /', key.tris, 'tris')
     } catch (e) {
@@ -313,6 +337,11 @@ class Game {
         flashdead: claim(0.80),
       }
     })()
+    this.health = createHealth(HEALTH_MAX)
+    if (QA_HP != null && Number.isFinite(QA_HP)) this.health.hp = clamp(QA_HP, 0, HEALTH_MAX)
+    this._knife = { t: -1, cd: 0 }
+    this._heartTimer = 0
+    this.hud?.setHealth(this.health.hp / HEALTH_MAX, this.health.hp < 35)
     this._fuseTaken = false; this._cassetteTaken = false; this._medkitTaken = false
     this._fuseInstalled = false; this._powerOn = false; this._jumpscared = false
     if (QA_POWER) { this._fuseInstalled = true; this._powerOn = true }
@@ -460,6 +489,7 @@ class Game {
       hasKey: !!this.puzzle?.hasKey,
       powerOn: !!this._powerOn,
       stalker: st && st.present ? `${(st.brain?.distance ?? 0).toFixed(1)} m · ${st.brain?.state ?? '?'}` : 'ausente',
+      vida: Math.round(this.health.hp),
     }
     this.debugPanel.update(dt, info)
   }
@@ -518,10 +548,38 @@ class Game {
       this.steps++
       this.audio.footstep(cam.sprinting)
     }
+    // ── vida — regeneração CoD após 5.5 s sem dano; batidas sob vida crítica ──
+    updateHealth(this.health, dt)
+    const hpFrac = this.health.hp / this.health.max
+    const lowP = lowHealthPulse(this.health)
+    this.hud.setHealth(hpFrac, this.health.hp < 35, lowP)
+    this._lowP = lowP
+    if (lowP > 0 && this.state === 'playing') {
+      this._heartTimer -= dt
+      if (this._heartTimer <= 0) { this._heartTimer = heartbeatInterval(this.health); this.audio.heartThump() }
+    } else {
+      this._heartTimer = 0.32
+    }
     // ── o stalker — ouve, vê, lembra, decai ───────────────────────
     if (this._noisePulse > 0) this._noisePulse = Math.max(0, this._noisePulse - dt / 2.4)
     const crouchNoise = this.player.crouch ? 0.38 : 1
     const noiseNow = Math.max(cam.moving ? (cam.sprinting ? 1.0 : 0.42) * crouchNoise : 0, this._noisePulse)
+    // ── faca — LMB ataca na direção da mira; o golpe tem impacto num instante ──
+    this._knife.cd = Math.max(0, this._knife.cd - dt)
+    const lmb = this.input.consumeLmb()
+    if (lmb && this.state === 'playing' && this._knife.cd <= 0 && this._knifeReady) {
+      this._knife.t = 0
+      this._knife.cd = 0.58
+      this._noisePulse = Math.max(this._noisePulse, 0.30)   // a lâmina canta — o stalker ouve
+      this.audio.knifeSwing()
+    }
+    if (QA_SWING != null && this._knife.t < 0) this._knife.t = QA_SWING
+    if (this._knife.t >= 0) {
+      const prev = this._knife.t
+      this._knife.t += QA_SWING != null ? 0 : dt / KNIFE_SWING_SECONDS
+      if (this._knife.t >= 1) this._knife.t = -1
+      else if (prev < KNIFE_IMPACT_T && this._knife.t >= KNIFE_IMPACT_T) this._knifeImpact(cam)
+    }
     if (this.stalker) {
       const s = this.stalker.update(dt, { dt, px: cam.eyeX, pz: cam.eyeZ, noise: noiseNow, time, crouch: this.player.crouch })
       const creepable = s.state !== 'dormant' && s.state !== 'gone'
@@ -624,7 +682,9 @@ class Game {
       } else if (target === 'medkit') {
         this._medkitTaken = true
         this.player.stamina = 1; this.player.exhausted = false
-        this.hud.toast('PRIMEIROS SOCORROS — O FÔLEGO VOLTOU', 2.6)
+        healHealth(this.health, 34)
+        this.hud.setHealth(this.health.hp / this.health.max, this.health.hp < 35)
+        this.hud.toast('PRIMEIROS SOCORROS — A VIDA VOLTA', 2.6)
         this.audio.uiTick()
       } else if (target === 'fuse') {
         this._fuseTaken = true
@@ -716,6 +776,33 @@ class Game {
     this.audio.update(dt)
   }
 
+  _knifeImpact(cam) {
+    const dir = this.player.lookDir()
+    const st = this.stalker
+    // stalker à frente: esfera no peito (1.15 m), raio 0.95, alcance 2.6 m, cone ~19°
+    if (st && st.present && st.brain?.alive !== false) {
+      const sx = st.brain.x - cam.eyeX, sz = st.brain.z - cam.eyeZ
+      const dist = Math.hypot(sx, sz)
+      if (dist <= 2.6) {
+        const horiz = Math.hypot(dir[0], dir[2]) || 1e-6
+        const dot = (dir[0] * sx + dir[2] * sz) / (horiz * (dist || 1))
+        if (dot >= 0.94) {
+          const kbx = sx / (dist || 1), kbz = sz / (dist || 1)
+          const res = st.brain.damage(40, kbx, kbz)
+          this.audio.knifeHitFlesh()
+          this.hud.hitmarker()
+          this._shake = Math.max(this._shake, 0.30)
+          if (res === 'dead') { st.sinkT = 0; st.sinkY = 0; this.hud.toast('ELE CAIU.', 2.6) }
+          return
+        }
+      }
+    }
+    // parede/chão — baque seco da lâmina no reboco e arranhão
+    const wall = raycastCells(this.lvl?.cells, this.lvl?.size, [cam.eyeX, cam.eyeY ?? EYE_FALLBACK, cam.eyeZ], dir, 2.7)
+    if (wall) { this.audio.knifeHitWall(); this.hud.hitmarker(); this._shake = Math.max(this._shake, 0.13); return }
+    if (dir[1] < -0.45) { const fd = (cam.eyeY ?? EYE_FALLBACK) / -dir[1]; if (fd <= 2.8) { this.audio.knifeHitWall(); this._shake = Math.max(this._shake, 0.12); return } }
+  }
+
   _onStalkerEvent(ev) {
     switch (ev) {
       case 'spawn': case 'respawn': this.audio.stalkerMurmur(0.5); break
@@ -725,9 +812,18 @@ class Game {
         this.audio.stalkerSting(1.0)
         this._jumpscared = true
         break
-      case 'pounce':
-        this._die('ELE VIU VOCÊ.')
+      case 'pounce': {
+        damageHealth(this.health, 58)   // dois pounces sem tratamento = morte
+        this.hud.damageFlash()
+        if (this.health.hp <= 0) {
+          this._die('ELE VIU VOCÊ.')
+        } else {
+          this._shake = 1.0
+          this.audio.stalkerPounce()
+          this.hud.toast('ELE FERIU VOCÊ — CORRA', 1.9)
+        }
         break
+      }
       case 'vanish': this.audio.stalkerVanish(); break
       case 'lost-trail': break   // silêncio — ele perdeu-te, não tens de saber já
       default: break
@@ -820,6 +916,12 @@ class Game {
       return compose(invView, flashLocal())
     })()
     const vmView = (this.state === 'playing' && flashMatrix) ? mat4.multiply(mat4.create(), viewmodelProj(aspect), view) : null
+    const knifeMatrix = (() => {
+      if (this.state !== 'playing' || !this._knifeReady) return null
+      const invView = mat4.invert(view)
+      if (!invView) return null
+      return compose(invView, knifeLocal(this._knife.t >= 0 ? this._knife.t : -1, time))
+    })()
     const heldKeyMatrix = (() => {
       if (this.state !== 'playing' || !this.modelsReady || !this.puzzle?.hasKey) return null
       const invView = mat4.invert(view)
@@ -905,7 +1007,8 @@ class Game {
         cones.push({ apex: [l.x, l.y + 0.005, l.z], dir: [0, -1, 0], length: 2.72, radius: 1.45, color: [0.93, 0.80, 0.55], intensity: 0.30 })
       }
     }
-    const pulse = this.player?.exhausted ? 1 : clamp((1 - (this.player?.stamina ?? 1)) * 0.6, 0, 1)
+    const lowP = this._lowP ?? 0
+    const pulse = Math.max(this.player?.exhausted ? 1 : clamp((1 - (this.player?.stamina ?? 1)) * 0.6, 0, 1), lowP)
     // projeção do alvo da lanterna (6 m à frente) para o halo de poeira iluminada no passe de pós
     const torchUV = (() => {
       if (this.state !== 'playing') return null
@@ -950,8 +1053,10 @@ class Game {
       levels: lvl.levels,
       cones,
       pulse,
+      blood: lowP,
       noteMatrix: this._noteMatrix,
       flashMatrix,
+      knifeMatrix,
       heldKeyMatrix,
       viewmodelViewProj: vmView,
       dust: wantVol,
@@ -992,6 +1097,11 @@ const boot = async () => {
       textures.stalkerEmissive = await loadOne(renderer.gl, import.meta.env.BASE_URL + 'textures/stalker/stalker.emissive.jpg', { srgb: true })
     } catch (e) {
       console.error('texturas do stalker não carregaram — o jogo continua sem ele:', e)
+    }
+    try {
+      textures.knife = await loadPBRSet(renderer.gl, import.meta.env.BASE_URL + 'textures/knife/knife')
+    } catch (e) {
+      console.error('texturas da faca não carregaram — o jogo continua sem ela:', e)
     }
     renderer.setTextures(textures)
     window.__game = new Game(renderer)

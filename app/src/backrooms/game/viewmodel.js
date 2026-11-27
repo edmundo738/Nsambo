@@ -35,3 +35,37 @@ export function viewmodelProj(aspect) {
 export function transformDir(m, [x, y, z]) {
   return [m[0] * x + m[4] * y + m[8] * z, m[1] * x + m[5] * y + m[9] * z, m[2] * x + m[6] * y + m[10] * z]
 }
+
+// ── faca de combate (viewmodel) ─────────────────────────────────────────────
+// Canonical do GLB: ponta +X, gume/face plana para cima (+Y), 0.46 m de ponta a ponta.
+// No jogo a faca tem ~0.32 m — escala 0.70. Empunhada no canto inferior direito, lâmina
+// plana para cima como punho invertido; o golpe LUNGE em direção à mira (−Z) e desce.
+const RX = (r) => { const c = Math.cos(r), s = Math.sin(r); return new Float32Array([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]) }
+const RZ = (r) => { const c = Math.cos(r), s = Math.sin(r); return new Float32Array([c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]) }
+const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
+export const KNIFE_IMPACT_T = 0.235   // instante (0..1) em que a lâmina está à distância máxima
+export const KNIFE_SWING_SECONDS = 0.62
+
+export function knifeLocal(attack01 = -1, time = 0) {
+  // respiração de quem segura uma lâmina perto do corpo: nunca parada de vez
+  // empunhada ao centro-baixo (estilo CoD) — a lanterna vive no canto inferior direito
+  let tx = 0.115, ty = -0.188, tz = -0.315
+  let ry = -Math.PI / 2 - 0.10, rx = 0.15, rz = 0.055
+  ty += Math.sin(time * 1.65) * 0.0026
+  ry += Math.sin(time * 0.9 + 1.2) * 0.006
+  if (attack01 >= 0) {
+    const t = attack01
+    // fases do golpe: recuar (0–0.16) → cravar (0.16–0.30) → recolher (0.30–1)
+    const wind = sstep(0, 0.15, t) * (1 - sstep(0.30, 0.52, t))
+    const strike = sstep(0.15, KNIFE_IMPACT_T, t) * (1 - sstep(0.34, 0.78, t))
+    const recover = sstep(0.55, 1, t)
+    const lunge = strike * (1 - recover * 0.55)
+    tz -= 0.270 * lunge          // para a FRENTE, para onde a mira aponta
+    tx -= 0.085 * lunge          // cruza a vista em direção ao centro
+    ty += 0.055 * wind - 0.055 * lunge + 0.02 * recover
+    rx += 0.55 * wind - 1.05 * lunge + 0.18 * recover   // punho vira: cravar para baixo
+    ry += 0.17 * lunge
+    rz += 0.10 * lunge - 0.05 * wind
+  }
+  return mul(T(tx, ty, tz), RY(ry), RX(rx), RZ(rz), S(0.70))
+}

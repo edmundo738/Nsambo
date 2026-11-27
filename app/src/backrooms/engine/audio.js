@@ -326,4 +326,91 @@ export class GameAudio {
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05)
     o.connect(g); g.connect(this.master); o.start(t0); o.stop(t0 + 0.06)
   }
+
+  // ── faca ── o golpe da lâmina no ar, na carne e na pedra ──
+  knifeSwing() {
+    if (!this.ensure()) return
+    const ctx = this.ctx, t0 = ctx.currentTime
+    // whoosh: ruído com bandpass a descer + anel metálico subtil da lâmina
+    const src = ctx.createBufferSource(); src.buffer = this._white(); src.playbackRate.value = 1.35
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.5
+    bp.frequency.setValueAtTime(1500, t0)
+    bp.frequency.exponentialRampToValueAtTime(280, t0 + 0.17)
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(0.42, t0 + 0.022)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.20)
+    src.connect(bp); bp.connect(g); g.connect(this.master); src.start(t0); src.stop(t0 + 0.22)
+    const ring = ctx.createOscillator(); ring.type = 'triangle'; ring.frequency.value = 2350
+    const rg = ctx.createGain()
+    rg.gain.setValueAtTime(0.0001, t0)
+    rg.gain.exponentialRampToValueAtTime(0.055, t0 + 0.012)
+    rg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16)
+    ring.connect(rg); rg.connect(this.master); ring.start(t0); ring.stop(t0 + 0.17)
+  }
+  knifeHitFlesh() {
+    if (!this.ensure()) return
+    const ctx = this.ctx, t0 = ctx.currentTime
+    // impacto fundo + «shlk» úmido da lâmina a entrar
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(96, t0)
+    o.frequency.exponentialRampToValueAtTime(48, t0 + 0.22)
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(0.85, t0 + 0.01)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.26)
+    o.connect(g); g.connect(this.master); o.start(t0); o.stop(t0 + 0.28)
+    const src = ctx.createBufferSource(); src.buffer = this._white(); src.playbackRate.value = 0.72
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.9; lp.frequency.value = 620
+    const g2 = ctx.createGain()
+    g2.gain.setValueAtTime(0.0001, t0 + 0.012)
+    g2.gain.exponentialRampToValueAtTime(0.55, t0 + 0.05)
+    g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.20)
+    src.connect(lp); lp.connect(g2); g2.connect(this.master); src.start(t0 + 0.012); src.stop(t0 + 0.22)
+    // leve escama de metal do reforço da lâmina
+    const tick = ctx.createOscillator(); tick.type = 'square'; tick.frequency.value = 3120
+    const tg = ctx.createGain()
+    tg.gain.setValueAtTime(0.0001, t0 + 0.02)
+    tg.gain.exponentialRampToValueAtTime(0.045, t0 + 0.025)
+    tg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.09)
+    tick.connect(tg); tg.connect(this.master); tick.start(t0 + 0.02); tick.stop(t0 + 0.1)
+  }
+  knifeHitWall() {
+    if (!this.ensure()) return
+    const ctx = this.ctx, t0 = ctx.currentTime
+    // baque seco no reboco + arranhão curto da ponta
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(150, t0)
+    o.frequency.exponentialRampToValueAtTime(84, t0 + 0.12)
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(0.55, t0 + 0.008)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16)
+    o.connect(g); g.connect(this.master); o.start(t0); o.stop(t0 + 0.18)
+    const src = ctx.createBufferSource(); src.buffer = this._white(); src.playbackRate.value = 1.1
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.7; bp.frequency.value = 980
+    const g2 = ctx.createGain()
+    g2.gain.setValueAtTime(0.0001, t0 + 0.03)
+    g2.gain.exponentialRampToValueAtTime(0.3, t0 + 0.05)
+    g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.19)
+    src.connect(bp); bp.connect(g2); g2.connect(this.master); src.start(t0 + 0.03); src.stop(t0 + 0.2)
+  }
+  knifeHitMetal() {
+    if (!this.ensure()) return
+    const ctx = this.ctx, t0 = ctx.currentTime
+    // tinido claro — lâmina contra lâmina/tubo/fechadura
+    for (const [f, v, d] of [[1244, 0.34, 0.34], [1866, 0.2, 0.22], [3120, 0.12, 0.13]]) {
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f
+      const g = ctx.createGain()
+      g.gain.setValueAtTime(0.0001, t0)
+      g.gain.exponentialRampToValueAtTime(v, t0 + 0.006)
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d)
+      o.connect(g); g.connect(this.master); o.start(t0); o.stop(t0 + d + 0.02)
+    }
+    const src = ctx.createBufferSource(); src.buffer = this._white(); src.playbackRate.value = 1.8
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2400
+    const g2 = ctx.createGain()
+    g2.gain.setValueAtTime(0.0001, t0)
+    g2.gain.exponentialRampToValueAtTime(0.18, t0 + 0.005)
+    g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.08)
+    src.connect(hp); hp.connect(g2); g2.connect(this.master); src.start(t0); src.stop(t0 + 0.1)
+  }
 }

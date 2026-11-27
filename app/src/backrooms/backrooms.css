@@ -67,6 +67,10 @@ body { font-family: "Courier New", ui-monospace, Menlo, monospace; color: var(--
 .meter .fill { height: 100%; background: var(--amber); transition: width .1s linear; box-shadow: 0 0 8px rgba(255, 216, 148, .45); }
 .meter .fill.low { background: #ff8a3c; box-shadow: 0 0 10px rgba(255, 120, 50, .75); animation: low-batt 0.8s steps(2, jump-none) infinite; }
 @keyframes low-batt { 50% { opacity: .55 } }
+#health-wrap { bottom: 150px; }
+#health-fill { background: linear-gradient(90deg, #ff6a52, #d63a28 55%, #8f1d12); box-shadow: 0 0 10px rgba(255, 90, 66, .5); }
+#health-fill.low { background: linear-gradient(90deg, #ff8a6a, #e04a2e); box-shadow: 0 0 14px rgba(255, 80, 50, .8); animation: hp-low 0.7s steps(2, jump-none) infinite; }
+@keyframes hp-low { 50% { opacity: .5 } }
 #stamina-wrap { bottom: 92px; }
 #stamina-fill.exhausted { background: #ff9c6b; box-shadow: 0 0 8px rgba(255, 156, 107, .5); }
 #battery-wrap { bottom: 40px; }
@@ -147,3 +151,27 @@ body { font-family: "Courier New", ui-monospace, Menlo, monospace; color: var(--
 #loading .l-big { font-size: 15px; letter-spacing: .6em; color: var(--amber); animation: pulse 1.6s ease-in-out infinite; }
 #loading-tip { margin-top: 18px; font-size: 9px; letter-spacing: .35em; color: var(--amber-dim); }
 @keyframes pulse { 50% { opacity: .35; } }
+
+
+/* ── dano CoD: clarão vermelho no ecrã + hitmarker ── */
+#dmg-flash { position: fixed; inset: 0; z-index: 5; pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 42%, rgba(150, 12, 8, 0.34) 68%, rgba(120, 4, 2, 0.62) 100%); }
+#dmg-flash.show { animation: dmg-flash 0.62s ease-out forwards; }
+@keyframes dmg-flash { 0% { opacity: 1 } 100% { opacity: 0 } }
+#hitmarker { position: fixed; top: 50%; left: 50%; width: 44px; height: 44px; z-index: 7;
+  transform: translate(-50%, -50%); pointer-events: none; opacity: 0; }
+#hitmarker span { position: absolute; width: 14px; height: 2.5px; background: #ffd9c4; border-radius: 2px;
+  box-shadow: 0 0 7px rgba(255, 60, 30, .95), 0 0 2px #fff; }
+#hitmarker span:nth-child(1) { left: 3px; top: 9px; transform: rotate(-45deg); }
+#hitmarker span:nth-child(2) { right: 3px; top: 9px; transform: rotate(45deg); }
+#hitmarker span:nth-child(3) { left: 3px; bottom: 9px; transform: rotate(45deg); }
+#hitmarker span:nth-child(4) { right: 3px; bottom: 9px; transform: rotate(-45deg); }
+#hitmarker.show { animation: hitmark 0.26s ease-out forwards; }
+@keyframes hitmark { 0% { opacity: 0; transform: translate(-50%, -50%) scale(1.45) } 18% { opacity: 1 } 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.92) } }
+
+/* ── vida crítica persistente: bordas vermelhas a pulsar (CoD/boomer shooter) ── */
+#lowhp-vignette { position: fixed; inset: 0; z-index: 5; pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(168, 20, 10, 0.52) 66%, rgba(112, 4, 2, 0.88) 100%);
+  transition: opacity .3s linear; }
+#lowhp-vignette.on { animation: lowhp-beat 0.84s ease-in-out infinite; }
+@keyframes lowhp-beat { 0%, 100% { filter: brightness(1) } 18% { filter: brightness(1.5) saturate(1.4) } 40% { filter: brightness(0.85) } 54% { filter: brightness(1.25) } 70% { filter: brightness(0.92) } }

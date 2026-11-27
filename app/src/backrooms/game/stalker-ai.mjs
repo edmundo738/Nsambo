@@ -91,6 +91,32 @@ export class StalkerBrain {
     this.confidence = 0               // 0..1 — quão «certo» está da posição
     this.distance = 999               // cache da distância ao jogador
     this.inSight = false
+    // ── combate com a faca do jogador ──
+    this.hp = 100                     // três facadas derrubam-no
+    this.alive = true
+    this.stunT = 0                    // atordoado (parado, sem caçar)
+    this.knX = 0                      // empurrão residual da facada
+    this.knZ = 0
+  }
+
+  // facada — damage em pontos; kdir = direção do empurrão (unitária no XZ)
+  damage(amount, kdirX = 0, kdirZ = 0) {
+    if (!this.alive || this.state === 'gone') return 'immune'
+    this.hp = Math.max(0, this.hp - amount)
+    const KB = 2.7
+    this.knX += kdirX * KB
+    this.knZ += kdirZ * KB
+    this.speed = 0   // a facada para-o a meio do bote
+    this.stunT = Math.max(this.stunT, 0.95)
+    this.confidence = clamp(this.confidence + 0.30, 0, 1)   // a dor devolve-lhe a certeza — ele procura a fonte
+    if (this.hp <= 0) {
+      this.alive = false
+      this.state = 'gone'             // derrubado — não volta ao quarto
+      this.cooldown = 9999
+      this.speed = 0
+      return 'dead'
+    }
+    return 'stagger'
   }
 
   _idx(r, c) { return r * this.size + c }
@@ -158,6 +184,23 @@ export class StalkerBrain {
     const px = env.px, pz = env.pz
     const dist = this._distToPlayer(px, pz)
     this.distance = dist
+    // ── atordoado pela lâmina: imóvel, empurrão a deslizar, memória corre à mesma ──
+    if (this.stunT > 0) {
+      this.stunT = Math.max(0, this.stunT - dt)
+      this.memAge += dt
+      this.lastSight += dt
+      this.lastHeard += dt
+      const stepX = this.knX * dt, stepZ = this.knZ * dt
+      if (Math.abs(stepX) > 1e-4 || Math.abs(stepZ) > 1e-4) {
+        const ni = this._cellOf(this.x + stepX, this.z + stepZ)
+        if (this.cells[ni] === 1) { this.x += stepX; this.z += stepZ } else { this.knX = 0; this.knZ = 0 }
+      }
+      this.knX *= Math.exp(-4.2 * dt); this.knZ *= Math.exp(-4.2 * dt)
+      this.speed = Math.max(0, this.speed - dt * 6)
+      this.cellIdx = this._cellOf(this.x, this.z)
+      this.r = Math.floor(this.cellIdx / this.size); this.c = this.cellIdx % this.size
+      return this._out()
+    }
     this.memAge += dt
     this.lastSight += dt
     this.lastHeard += dt
@@ -263,7 +306,7 @@ export class StalkerBrain {
     return {
       state: this.state, x: this.x, z: this.z, yaw: this.yaw,
       speed: this.speed, distance: this.distance, inSight: this.inSight,
-      confidence: this.confidence, memoryAge: this.memAge,
+      confidence: this.confidence, memoryAge: this.memAge, hp: this.hp, alive: this.alive,
       events: this.events,
     }
   }

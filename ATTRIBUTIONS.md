@@ -24,6 +24,13 @@ Modelo                                     | Origem                             
 ------------------------------------------ | ----------------------------------- | ------------------------------------
 Stalker definitivo (`stalker.glb`)         | `game-assets/white_mesh.glb`, commit 329a5b33 — fornecido pelo responsável pelo repositório; malha "white" (sem textura) derivada com assistência de IA (família Hunyuan3D, se aplicável — a Hunyuan 3D 2.0 Community License não se aplica à UE/Reino Unido/Coreia e a Tencent não reivindica direitos sobre os outputs; Angola está fora dessa restrição) | **Integrado (2026-11-26)** — stalker do jogo, substituído in-place: pele PBR própria (albedo pálido gerado por IA 2026-11-26, AO assado por ray-trace, normais faux-Sobel, roughness por luminância), emissive de olhos em brasa; deformação 100% procedural (sem rig esquelético)
 
+## Modelo — faca do viewmodel (fornecida via game-assets/, processada no projeto)
+
+Modelo                                     | Origem                              | Destino no jogo
+------------------------------------------ | ----------------------------------- | ------------------------------------
+Faca (`knife.glb`)                        | `game-assets/white_mesh (6).glb` — commit 8790f88, fornecida pelo responsável pelo repositório; malha derivada com assistência de IA (família Hunyuan3D, se aplicável — mesma situação de licença do stalker: a Hunyuan 3D 2.0 Community License não se aplica à UE/Reino Unido/Coreia do Sul e a Tencent não reivindica direitos sobre os outputs; Angola está fora dessa restrição). **Processada integralmente no projeto (2026-11-27)**: retopologia xatlas (≈54.5k → malha atual), pose canónica, exportação PBR 2048² pintada localmente, runas «EU SOU» na lâmina e no cabo | **Integrada (2026-11-27)** — viewmodel do ataque de faca (LMB); lâmina prateada fosca, cabo em mogno envernizado |
+Texturas da faca (`assets/textures/knife/knife*.jpg`) | Geradas no projeto (2026-11-27, raster + paint local) — albedo/normal/roughness/AO/height | Papeamento do `knife.glb` |
+
 ## Modelos 3D — packs RETROS / RETRO ASSETS LIBRARY (fornecidos via game-assets/)
 
 Sem licença ou README incluídos nos zips — usados com permissão do responsável

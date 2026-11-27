@@ -24,6 +24,36 @@ export class Hud {
       bar.classList.toggle('exhausted', !!exhausted)
     }
   }
+  setHealth(frac, low, lowPulse = 0) {
+    const bar = $('health-fill')
+    if (bar) {
+      bar.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`
+      bar.classList.toggle('low', !!low)
+    }
+    const lv = $('lowhp-vignette')
+    if (lv) {
+      lv.style.opacity = String(Math.max(0, Math.min(1, lowPulse)) * 0.9)
+      lv.classList.toggle('on', lowPulse > 0.02)
+    }
+  }
+  // clarão vermelho radial no ecrã quando o stalker atinge (pulso CoD)
+  damageFlash() {
+    const el = $('dmg-flash')
+    if (!el) return
+    el.classList.remove('show')
+    void el.offsetWidth
+    el.classList.add('show')
+  }
+  // hitmarker — o X branco/vermelho do tipo CoD no centro do ecrã
+  hitmarker() {
+    const el = $('hitmarker')
+    if (!el) return
+    el.classList.remove('show')
+    void el.offsetWidth
+    el.classList.add('show')
+    clearTimeout(this._hitTO)
+    this._hitTO = setTimeout(() => el.classList.remove('show'), 260)
+  }
   setBattery(frac) {
     const bar = $('battery-fill')
     if (bar) {
