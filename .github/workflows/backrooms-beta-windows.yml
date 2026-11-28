@@ -27,6 +27,7 @@ jobs:
           npm test
           npx vite build --config vite.config.build.js
           Copy-Item ../launcher/* dist/
+          Copy-Item ../multiplayer/lan-server.cjs dist/relay.cjs
 
       - name: Verifica o dist (falha o build se faltar algo)
         shell: pwsh
@@ -36,6 +37,8 @@ jobs:
             'app/dist/JOGAR.bat',
             'app/dist/server.ps1',
             'app/dist/COMO-JOGAR.txt',
+            'app/dist/LAN.bat',
+            'app/dist/relay.cjs',
             'app/dist/models/arms_rig.glb',
             'app/dist/models/psx_house_key.glb',
             'app/dist/models/psx_flashlight.glb',
@@ -69,13 +72,13 @@ jobs:
         shell: pwsh
         run: |
           $setup = Get-ChildItem desktop-tauri/src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
-          Copy-Item $setup.FullName NSAMBO-THE-BACKROOMS-0.2.0-beta-Windows-setup.exe
+          Copy-Item $setup.FullName NSAMBO-THE-BACKROOMS-0.3.0-beta-Windows-setup.exe
 
       - name: Zip do build web (sem exe — abre em qualquer browser)
         shell: pwsh
         run: |
-          Compress-Archive -Path app/dist/* -DestinationPath NSAMBO-THE-BACKROOMS-0.2.0-beta-web.zip -Force
-          Expand-Archive -Path NSAMBO-THE-BACKROOMS-0.2.0-beta-web.zip -DestinationPath web-check -Force
+          Compress-Archive -Path app/dist/* -DestinationPath NSAMBO-THE-BACKROOMS-0.3.0-beta-web.zip -Force
+          Expand-Archive -Path NSAMBO-THE-BACKROOMS-0.3.0-beta-web.zip -DestinationPath web-check -Force
           $required = @('web-check/backrooms.html', 'web-check/JOGAR.bat', 'web-check/server.ps1', 'web-check/COMO-JOGAR.txt', 'web-check/models/arms_rig.glb', 'web-check/textures/backrooms/key-gold.jpg')
           $missing = $required | Where-Object { -not (Test-Path $_) }
           Remove-Item web-check -Recurse -Force
@@ -87,52 +90,38 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = 'backrooms-v0.2.0-beta'
+          $tag = 'backrooms-v0.3.0-beta'
           $notes = @'
-          ## THE BACKROOMS — BETA FECHADA (Lobby 0 «O Amarelo Infinito»)
+## THE BACKROOMS — BETA 0.3.0 (LAN 1v1 — caçador vs fugidor)
 
-          Segunda beta de teste, agora com o **stalker corrigido** (auditoria completa em `fotos/RELATORIO.md`):
+**NOVO: o primeiro multijogador do jogo — 1v1 na tua rede local (Wi-Fi/cabo).**
 
-          - **A morte finalmente desfaz o stalker**: ragdoll assenta (fallback determinístico aos 4 s), o corpo afunda no chão e a entidade é removida — dantes o cadáver ficava lá para sempre.
-          - **Loading não persiste**: o ecrã «A ESTICAR O PAPEL DE PAREDE…» sai do DOM assim que a sala está pronta.
-          - **F3 em tempo real**: distância medida por frame (nunca «999 m»/«ausente» à frente do monstro) e estado `morto`/`a afundar` após o golpe.
-          - **IA do stalker congela depois da morte** (o cadáver já não vagueia pelo mapa).
-          - **Pele (`skin.ao.jpg`) reassada a partir da geometria real** — dantes quase 100% branco (AO não escurecia nada).
-          - **Pelvis com influência real** (~995 vértices repintados; antes 0 refs de peso).
-          - QA: `stalkerdie` agora conta em segundos de jogo, não em dt clamped.
+- **MULTIJOGADOR (LAN) → CRIAR** — és o caçador ou o fugidor (o lado de lá fica com o oposto).
+- **PROCURAR PARTIDAS** — à Minecraft: o jogo percorre a tua rede e **lista as salas abertas**; um clique em «ENTRAR».
+- **Seed partilhado, papéis opostos.** O fugidor vê-te a ti — o caçador — como *ele*. O caçador vê o fugidor só como uma sombra na parede.
+- **Vitórias**: caçador esvazia a vida do fugidor (golpe do botão esquerdo); fugidor abre a porta SAÍDA com a chave.
+- Sem servidores na internet: o relé corre na máquina do anfitrião (`relay.cjs`, incluso no ZIP). **O anfitrião precisa de Node.js** (https://nodejs.org); o convidado não precisa de nada. Bluetooth: não suportado — dois jogos não comunicam por BLE.
 
-          Continuamos a saber que está áspera. Bug reports são bem-vindos: abre uma **Issue** no repositório com o que aconteceu (semente, o que estavas a fazer, print se possível).
+### Como jogar LAN
 
-          ### Como jogar (Windows)
+**Opção A — instalador (recomendado):** instala e abre «NSAMBO-BACKROOMS».
+**Opção B — sem instalar:** extrai o ZIP INTEIRO, duplo-clique em `JOGAR.bat` (joga local) ou `LAN.bat` (hospeda uma sala LAN).
 
-          **Opção A — instalador (recomendado):**
-          1. Descarrega `NSAMBO-THE-BACKROOMS-0.2.0-beta-Windows-setup.exe`
-          2. Executa o instalador (segundos) e abre pelo atalho «NSAMBO-BACKROOMS»
-          3. Clica no ecrã para prender o rato (pointer lock). **Esc** liberta o rato.
+Para criar sala: duplo-clique em `LAN.bat` → no jogo, **MULTIJOGADOR (LAN) → CRIAR**.
+Para entrar: **PROCURAR PARTIDAS** → «ENTRAR» na sala listada (ou escreve o IP do anfitrião).
 
-          **Opção B — sem instalar (web.zip):**
-          1. Descarrega `NSAMBO-THE-BACKROOMS-0.2.0-beta-web.zip`
-          2. **Extrai o ZIP INTEIRO** para uma pasta nova (ex.: Documentos\Backrooms)
-          3. **Duplo-clique em `JOGAR.bat`** (a pasta tem de conter JOGAR.bat e server.ps1)
-          4. O browser abre sozinho em `http://127.0.0.1:8321/backrooms.html` — joga a partir daí.
+### Lobby 0 — «O Amarelo Infinito»
+Tudo da 0.2.0 continua (stalker com ragdoll assentado, loading fora do DOM, IA congelada após a morte, F3 em tempo real).
 
-          A pasta extraída tem de ter: `backrooms.html`, `JOGAR.bat`, `server.ps1`, `COMO-JOGAR.txt`, `assets/`, `textures/`, `models/`, `ost/`. Se faltar o `JOGAR.bat`, o download ficou incompleto — apaga e descarrega outra vez, ou usa o instalador (Opção A). Não precisas de npm/node/vite.
-
-          (Usa o WebView2 que já vem no Windows — sem Chromium embutido, por isso são só poucos MB.)
-
-          ### Controlos
-          **WASD** andar · **SHIFT** correr (stamina) · **ESPAÇO** saltar · **E** interagir · **F** lanterna · **M** mini-mapa · **Esc** libertar rato
-
-          Objetivo: encontra a chave, abre a porta SAÍDA.
-
-          ### Notas honestas
-          - Só existe o **Lobby 0**; os outros níveis são vapor, por agora.
-          - Testado headless (Linux/SwiftShader): fluxo completo chave→porta→vitória verde em E2E; 300 seeds válidas com caminho spawn→saída. **Ainda não validado em hardware real** — daí esta beta.
-          - FPS/som podem variar por máquina. O jogo corre em WebGL2 dentro de uma janela WebView2 (Tauri).
-          '@
+### Notas honestas
+- Sem hardware real por trás desta build — daí a beta. Bug reports: **Issue** no repositório (seed, o que fazias, print).
+- A descoberta LAN percorre os /24 mais comuns; se a rede for exótica, usa o IP manual. Se a ligação cair, a sala fecha.
+- Host precisa de Node para o relé (compilar para .exe fica para a próxima).
+- Só existe o **Lobby 0**. O resto é vapor, por agora.
+'@
           gh release view $tag 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag NSAMBO-THE-BACKROOMS-0.2.0-beta-Windows-setup.exe NSAMBO-THE-BACKROOMS-0.2.0-beta-web.zip --clobber
+            gh release upload $tag NSAMBO-THE-BACKROOMS-0.3.0-beta-Windows-setup.exe NSAMBO-THE-BACKROOMS-0.3.0-beta-web.zip --clobber
           } else {
-            gh release create $tag NSAMBO-THE-BACKROOMS-0.2.0-beta-Windows-setup.exe NSAMBO-THE-BACKROOMS-0.2.0-beta-web.zip --prerelease --target $env:GITHUB_REF_NAME --title 'THE BACKROOMS — Beta 0.2.0 (Lobby 0)' --notes $notes
+            gh release create $tag NSAMBO-THE-BACKROOMS-0.3.0-beta-Windows-setup.exe NSAMBO-THE-BACKROOMS-0.3.0-beta-web.zip --prerelease --target $env:GITHUB_REF_NAME --title 'THE BACKROOMS — Beta 0.3.0 (LAN 1v1)' --notes $notes
           }

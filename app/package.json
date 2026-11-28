@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
-    "test": "node --test test/stalker-apparition.test.mjs test/arms-anim.test.mjs test/flashlight-pressure.test.mjs test/occlusion.test.mjs test/player-crouch.test.mjs test/stalker.test.mjs test/puzzle.test.mjs test/wfc.test.mjs test/viewmodel.test.mjs test/interaction.test.mjs test/arms-poses.test.mjs test/gym.test.mjs test/devmap.test.mjs test/health.test.mjs test/stalker-combat.test.mjs test/stalker-anchors.test.mjs test/rig-export.test.mjs test/skeleton-schema.test.mjs test/skin-transfer.test.mjs",
+    "test": "node --test test/stalker-apparition.test.mjs test/net-proto.test.mjs test/lan-scan.test.mjs test/arms-anim.test.mjs test/flashlight-pressure.test.mjs test/occlusion.test.mjs test/player-crouch.test.mjs test/stalker.test.mjs test/puzzle.test.mjs test/wfc.test.mjs test/viewmodel.test.mjs test/interaction.test.mjs test/arms-poses.test.mjs test/gym.test.mjs test/devmap.test.mjs test/health.test.mjs test/stalker-combat.test.mjs test/stalker-anchors.test.mjs test/rig-export.test.mjs test/skeleton-schema.test.mjs test/skin-transfer.test.mjs",
     "screenshot": "node tools/screenshot.mjs"
   },
   "dependencies": {

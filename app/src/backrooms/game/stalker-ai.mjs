@@ -10,7 +10,7 @@ import { mulberry32 } from '../engine/wfc.js'
 import { losClearXZ, resolveCircleBoxes } from './occlusion.mjs'
 import { CELL } from '../engine/scene.js'
 
-export const STALKER_STATES = ['dormant', 'roam', 'investigate', 'stalk', 'hunt', 'lost', 'gone', 'apparition']
+export const STALKER_STATES = ['dormant', 'roam', 'investigate', 'stalk', 'hunt', 'lost', 'gone', 'apparition', 'puppet']
 
 const EDGE_KEY = (a, b) => (a < b ? a * 4096 + b : b * 4096 + a)
 export const DIRS = [[-1, 0], [0, 1], [1, 0], [0, -1]]   // cima direita baixo esquerda (linha, col)
@@ -201,6 +201,12 @@ export class StalkerBrain {
     const px = env.px, pz = env.pz
     const dist = this._distToPlayer(px, pz)
     this.distance = dist
+    // ── puppet: controlado por outro jogador na LAN — nenhuma lógica própria;
+    //    x/z/yaw/speed são escritos pelo cliente a cada frame (ver _remotePose) ──
+    if (this.state === 'puppet') {
+      this.inSight = false
+      return this._out()
+    }
     // ── aparição na névoa: estátua imóvel à distância, encara o jogador — não reage, não age, não fere.
     //    Só o scheduler em main.js a liga e desliga (ver _apparition). ──
     if (this.state === 'apparition') {

@@ -41,3 +41,15 @@ A ENCONTRAR BUGS?
   Abre uma Issue: https://github.com/edmundo738/Nsambo/issues
   Manda: o que aconteceu, a seed, o que estavas a fazer, um print.
   Obrigado por testar — é a primeira beta e cada bug report conta.
+
+MULTIJOGADOR (LAN) — 1v1 na tua rede Wi-Fi/cabo
+  O HOST (quem cria a sala) precisa de Node.js (https://nodejs.org, LTS):
+    1. Duplo-clique em LAN.bat  (ou: node relay.cjs)
+    2. No jogo: MULTIJOGADOR (LAN) -> CRIAR — SOU O CAÇADOR (ou FUGIDOR)
+  O CONVIDADO (sem Node):
+    1. Abre o jogo na mesma rede
+    2. MULTIJOGADOR (LAN) -> PROCURAR PARTIDAS -> ENTRAR na sala listada
+    3. Ou escreve o IP do host (192.168.x.x:8322) em ENTRAR
+  Caçador vence esvaziando a vida (LMB, 2.9 m). Fugidor vence abrindo
+  a porta SAÍDA com a chave. Seed partilhado, papéis opostos.
+  Bluetooth: não suportado (Web Bluetooth não faz jogos ponto-a-ponto).

@@ -86,6 +86,21 @@ body { font-family: "Courier New", ui-monospace, Menlo, monospace; color: var(--
 #key-ind.on { color: #1a1206; background: var(--amber); box-shadow: 0 0 22px rgba(255,216,148,.55); border-color: var(--amber); }
 #cells-ind { position: absolute; bottom: 88px; left: 50%; transform: translateX(-50%); font-size: 10px; letter-spacing: .4em; padding: 5px 14px 5px 16px; color: rgba(255,233,168,.0); border: 1px solid rgba(255,233,168,0); transition: all .4s; pointer-events: none; }
 #cells-ind.on { color: #2a1e05; background: #ffd76a; box-shadow: 0 0 18px rgba(255,215,106,.5); border-color: #ffd76a; }
+.lan-box { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 10px; }
+.lan-panel { display: flex; flex-direction: column; gap: 6px; align-items: center; padding: 12px 16px; border: 1px solid rgba(255,233,168,.22); background: rgba(10,8,5,.55); }
+.lan-panel[hidden] { display: none; }
+.lan-hint { font-size: 10px; letter-spacing: .14em; opacity: .72; text-align: center; }
+.btn.small { padding: 8px 18px; font-size: 10px; letter-spacing: .28em; }
+.lan-join-row { display: flex; gap: 8px; align-items: center; }
+.lan-join-row input { background: rgba(0,0,0,.5); border: 1px solid rgba(255,233,168,.3); color: #ffe9a8; font-family: inherit; font-size: 11px; padding: 7px 10px; width: 230px; letter-spacing: .06em; }
+.lan-status { min-height: 14px; font-size: 10px; letter-spacing: .12em; opacity: .85; color: #ffd76a; }
+.lan-found { display: flex; flex-direction: column; gap: 6px; max-height: 148px; overflow-y: auto; margin: 8px 0; }
+.lan-room { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid rgba(255,233,168,.22); background: rgba(0,0,0,.4); padding: 6px 10px; font-size: 10px; letter-spacing: .08em; color: #ffe9a8; }
+.lan-room small { opacity: .7; font-size: 9px; }
+.lan-room.full { opacity: .55; }
+.lan-room .btn { flex: 0 0 auto; }
+.lan-room-empty { font-size: 10px; opacity: .6; letter-spacing: .1em; }
+#lanresult-title.win { color: #ffd894; text-shadow: 0 0 34px rgba(255,216,148,.6); }
 
 #minimap-wrap {
   position: absolute; bottom: 26px; right: 26px; opacity: 0; transform: translateY(8px);

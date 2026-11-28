@@ -59,6 +59,22 @@
       <div><b>ESC</b> pausa</div>
     </div>
     <button class="btn" id="btn-start">ACORDAR</button>
+    <div class="lan-box">
+      <button class="btn ghost small" id="btn-lan">MULTIJOGADOR (LAN)</button>
+      <div class="lan-panel" id="lan-panel" hidden>
+        <div class="lan-hint">CRIAR SALA — na tua máquina, corre primeiro (<b>node lan-server.cjs</b>):</div>
+        <button class="btn ghost small" id="btn-lan-host-hunter">CRIAR — SOU O CAÇADOR</button>
+        <button class="btn ghost small" id="btn-lan-host-escapee">CRIAR — SOU O FUGIDOR</button>
+        <div class="lan-hint" style="margin-top:10px">ENCONTRAR SALAS NA TUA REDE (WLAN):</div>
+        <button class="btn ghost small" id="btn-lan-scan">PROCURAR PARTIDAS</button>
+        <div class="lan-found" id="lan-found"></div>
+        <div class="lan-join-row">
+          <input id="lan-ip" type="text" placeholder="…ou escreve o IP (ex.: 192.168.1.20:8322)" autocomplete="off" spellcheck="false" />
+          <button class="btn ghost small" id="btn-lan-join">ENTRAR</button>
+        </div>
+        <div class="lan-status" id="lan-status">&nbsp;</div>
+      </div>
+    </div>
     <div class="volume-row">SOM<input type="range" id="volume" min="0" max="1" step="0.01" value="0.8" /></div>
     <div class="seed-line" id="seed-label">SEMENTE 1337</div>
     <div class="violet-note">— NÃO VÁ VER O FUNDO DA LUZ VIOLETA —</div>
@@ -73,6 +89,13 @@
     <button class="btn" id="btn-retry">ACORDAR NO MESMO QUARTO</button>
     <button class="btn ghost" id="btn-death-newseed">OUTRO QUARTO (SEMENTE NOVA)</button>
     <div class="fineprint">O QUARTO NÃO PERDOA. O QUARTO NÃO ESQUECE.</div>
+  </div>
+
+  <!-- LAN — resultado da caçada -->
+  <div class="screen" id="screen-lanresult">
+    <div class="death-big" id="lanresult-title">A CAÇA TEVE FIM.</div>
+    <div class="death-sub" id="lanresult-sub">o amarelo fica sem você — desta vez.</div>
+    <button class="btn" id="btn-lan-again">VOLTAR AO TÍTULO</button>
   </div>
 
   <!-- PAUSA -->

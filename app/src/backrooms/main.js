@@ -21,6 +21,9 @@ import { rayBlocked, makeSealedSet } from './game/occlusion.mjs'
 import { beamStrength, flashlightPressure } from './game/flashlight-pressure.mjs'
 import { mulberry32 } from './engine/wfc.js'
 import { DevMenu } from './game/devmenu.js'
+import { LanNet } from './engine/net.mjs'
+import { parseInit, oppositeRole, makeInit, approachPos, lerpAngle, STATE_INTERVAL, LAN_PORT } from './game/net-proto.mjs'
+import { scanLan } from './game/lan-scan.mjs'
 
 const $ = (id) => document.getElementById(id)
 const params = new URLSearchParams(window.location.search)
@@ -54,6 +57,10 @@ const SWAP_SECONDS = 2.0   // trocar a pilha é uma ação física — 2 s de vu
 const POUNCE_IMPACT_DELAY = 0.42   // s até ao contacto no arco do strike (STRIKE_SECONDS = 0.9, pico sin(π·u) ≈ 0.45)
 const POUNCE_IMPACT_RADIUS = 1.45  // m — se o jogador se afastou mais que isto antes do impacto, evadiu
 const QA_STALKERHUNT = params.has('stalkerhunt')   // QA: força o estado de caçada (stalker a avançar) após o spawn demo
+const QA_LAN_URL = params.get('lan') ?? null       // ex.: ?lan=127.0.0.1:8322&side=host&role=hunter — liga direto (teste/avançado)
+const QA_LAN_SIDE = params.get('side') ?? 'host'    // 'host' cria a sala na própria máquina | 'guest' entra
+const QA_LAN_ROLE = params.get('role') ?? 'hunter'  // papel do ANFITRIÃO; o convidado fica com o oposto
+const QA_LAN_SCAN = params.get('lanscan')?.split(',').map(s => s.trim()).filter(Boolean) ?? null  // QA: restringir os /24 da procura na LAN (ex.: ?lanscan=127.0.0)
 const AUTOSTART = params.has('autostart') || QA_STALKERDEMO
 
 const EYE_FALLBACK = 1.62
@@ -130,6 +137,17 @@ class Game {
     this.stalker = null
     this.stalkerAssets = null
     this._apparition = null
+    this.hunterMode = false
+    this._lanRole = null
+    this._lanMode = false
+    this._lanOver = false
+    this._lanDoorSent = false
+    this._lanHits = 0
+    this._lanAtkCd = 0
+    this._puppetStun = 0
+    this._lanAcc = 0
+    this._remotePose = null
+    this._remotePoseTarget = null
     this.health = createHealth(HEALTH_MAX)
     this._knife = { t: -1, cd: 0 }
     this._knifeReady = false
@@ -150,6 +168,12 @@ class Game {
     const seedEl = $('seed-label'); if (seedEl) seedEl.textContent = `SEMENTE ${this.seed}`
     // botões
     $('btn-start')?.addEventListener('click', () => this._start())
+    $('btn-lan')?.addEventListener('click', () => { const p = $('lan-panel'); if (p) p.hidden = !p.hidden; this.audio.uiTick() })
+    $('btn-lan-host-hunter')?.addEventListener('click', () => this._lanHost('hunter'))
+    $('btn-lan-host-escapee')?.addEventListener('click', () => this._lanHost('escapee'))
+    $('btn-lan-join')?.addEventListener('click', () => this._lanJoin())
+    $('btn-lan-scan')?.addEventListener('click', () => this._lanScan())
+    $('btn-lan-again')?.addEventListener('click', () => location.reload())
     $('btn-resume')?.addEventListener('click', () => this._resume())
     $('btn-restart')?.addEventListener('click', () => this._restart(false))
     $('btn-newseed')?.addEventListener('click', () => this._restart(true))
@@ -213,7 +237,13 @@ class Game {
       this.stalkerAssets = await StalkerEntity.loadAssets(import.meta.env.BASE_URL)
       await this.renderer.setDynamicModel('stalker', this.stalkerAssets.glb)
       console.log('stalker: white_mesh definitivo — 12 mil tris, esqueleto 21 juntas + IK por passada + ragdoll')
-      if (this.lvl) this._spawnStalker()
+      if (this._lanRole === 'hunter' && this.lvl) {
+      const i = this._farthestOpenCell()
+      this.player.x = (i % this.lvl.size) * CELL + CELL / 2
+      this.player.z = Math.floor(i / this.lvl.size) * CELL + CELL / 2
+      this.player.yaw = Math.atan2(-(this.lvl.spawn.x * CELL + CELL / 2 - this.player.x), (this.lvl.spawn.z * CELL + CELL / 2 - this.player.z)) + Math.PI
+    }
+    if (this.lvl) this._spawnStalker()
       if (QA_STALKERDEMO) this._setupStalkerDemo(undefined, undefined, true)
     } catch (e) {
       console.error('stalker não carregou — o jogo continua sem ele:', e)
@@ -485,6 +515,178 @@ class Game {
     void fx; void fz
   }
 
+  // ── multijogador LAN 1v1 ─────────────────────────────
+  _lanStatus(msg) { const el = $('lan-status'); if (el) el.textContent = msg }
+
+  async _lanHost(role) { await this._lanConnect(`127.0.0.1:${LAN_PORT}`, 'h', role === 'escapee' ? 'escapee' : 'hunter') }
+  async _lanJoin(addr) {
+    const ip = (addr ?? (($('lan-ip')?.value) ?? '').trim()) || `127.0.0.1:${LAN_PORT}`
+    await this._lanConnect(ip, 'g', null)
+  }
+
+  // Procura salas na LAN à Minecraft: percorre os /24 com /lan-info (CORS *), lista as que respondem.
+  async _lanScan() {
+    const btn = $('btn-lan-scan')
+    const box = $('lan-found')
+    if (!box) return
+    if (this._lanScanning) return
+    this._lanScanning = true
+    if (btn) { btn.disabled = true; btn.textContent = 'A PROCURAR…' }
+    box.innerHTML = ''
+    this._lanStatus('a chamar às portas da rede…')
+    try {
+      const rooms = await scanLan({
+        fetchImpl: (url, opts) => fetch(url, opts),
+        prefixes: QA_LAN_SCAN ?? undefined,
+        timeoutMs: QA_LAN_SCAN ? 150 : 400,
+        onProgress: (done, total) => this._lanStatus(`a procurar na rede… ${done}/${total}`),
+      })
+      if (!rooms.length) {
+        box.innerHTML = '<div class="lan-room-empty">NENHUMA SALA NA REDE — o anfitrião tem de correr «node lan-server.cjs»</div>'
+        this._lanStatus('nenhuma sala encontrada')
+        return
+      }
+      this._lanStatus(rooms.length === 1 ? 'uma sala encontrada' : `${rooms.length} salas encontradas`)
+      for (const room of rooms) {
+        const row = document.createElement('div')
+        row.className = 'lan-room' + (room.open ? '' : ' full')
+        // dados vindos da REDE — textContent, nunca innerHTML
+        const info = document.createElement('span')
+        const b = document.createElement('b')
+        b.textContent = room.name
+        const small = document.createElement('small')
+        small.textContent = `${room.host}:${room.port} · ${room.players}/${room.capacity} ${room.open ? '— dá para entrar' : '— em curso'}`
+        info.appendChild(b)
+        info.appendChild(document.createElement('br'))
+        info.appendChild(small)
+        row.appendChild(info)
+        if (room.open) {
+          const enter = document.createElement('button')
+          enter.className = 'btn ghost small'
+          enter.textContent = 'ENTRAR'
+          enter.addEventListener('click', () => this._lanJoin(`${room.host}:${room.port}`))
+          row.appendChild(enter)
+        } else {
+          const tag = document.createElement('small')
+          tag.textContent = 'CHEIA'
+          row.appendChild(tag)
+        }
+        box.appendChild(row)
+      }
+    } catch {
+      this._lanStatus('a procurar falhou — usa o IP manual')
+    } finally {
+      this._lanScanning = false
+      if (btn) { btn.disabled = false; btn.textContent = 'PROCURAR PARTIDAS' }
+    }
+  }
+
+  async _lanConnect(url, side, hostRole) {
+    if (this.net) { this._lanStatus('já há uma ligação — recarrega a página para recomeçar'); return }
+    const seed = FIXED_SEED ?? ((Math.random() * 1e9) >>> 0)   // QA: ?seed fixa a semente do anfitrião
+    const net = new LanNet()
+    this.net = net
+    net.onMessage = (m) => this._onLanMessage(m)     // ANTES de ligar — as mensagens não esperam pelo await
+    net.onClose = (reason) => this._onLanClose(reason)
+    this._lanStatus(side === 'h' ? 'sala criada — à espera do outro jogador…' : 'a ligar…')
+    try { await net.connect(url) } catch (e) { this._lanStatus(e.message ?? 'não ligou — o servidor está aberto?'); this.net = null; return }
+    if (side === 'h') {
+      // o init só pode viajar quando o convidado chega — o relé avisa com 'ready'
+      net.onReady = () => {
+        if (this.state === 'playing') return           // já arrancou — ignora segunda via
+        this._lanRole = hostRole
+        net.send(makeInit(seed, hostRole))
+        this._lanStart(seed, hostRole)
+      }
+      this._lanStatus('sala criada — à espera do outro jogador…')
+    }
+    // convidado: espera pelo 'init' que o anfitrião envia em _onLanMessage
+  }
+
+  _lanStart(seed, role) {
+    this._lanMode = true
+    this._lanOver = false
+    this._lanRole = role
+    this.seed = seed >>> 0
+    this.reset(this.seed)                            // nível idêntico nos dois lados — mesma semente
+    this.state = 'playing'
+    this.hud.hideScreens()
+    const seedEl = $('seed-label'); if (seedEl) seedEl.textContent = `SEMENTE ${this.seed} · MULTIJOGADOR LAN`
+    if (role === 'hunter') {
+      this.hunterMode = true                          // depois do reset — o reset repõe hunterMode=false
+      this.flashlightOn = false
+      this._knifeReady = false
+      for (const id of ['battery-wrap', 'cells-ind', 'key-ind', 'crouch-ind']) { const el = $(id); if (el) el.style.display = 'none' }
+      this.hud.toast('VOCÊ É O CAÇADOR — encontre-o e derrube-o antes de ele abrir a porta', 4.5)
+    } else {
+      this.hud.toast('VOCÊ É O FUGIDOR — ache a chave e saia. ELE está cá dentro.', 4.5)
+    }
+    try { this.input.requestLock() } catch { /* headless sem lock */ }
+    console.log(`[lan] partida começou — papel ${role} — semente ${this.seed}`)
+  }
+
+  _onLanMessage(m) {
+    switch (m?.type) {
+      case 'init': {
+        const init = parseInit(m); if (!init) return
+        this._lanStart(init.seed, oppositeRole(init.hostRole))
+        return
+      }
+      case 'st': {
+        this._remotePoseTarget = { x: m.x, z: m.z, yaw: m.yaw, speed: m.speed ?? 0, crouch: !!m.crouch }
+        return
+      }
+      case 'atk': {
+        const rp = this._remotePose
+        if (this._lanRole === 'escapee' && rp) {
+          const d = Math.hypot(rp.x - this.player.x, rp.z - this.player.z)
+          if (d <= 3.1) {
+            damageHealth(this.health, 58)
+            this.hud.damageFlash(); this.audio.stalkerPounce(); this._shake = Math.max(this._shake, 0.85)
+            this.hud.toast('ELE FERIU VOCÊ — CORRA', 2.2)
+            this.net?.send({ type: 'hp', hp: Math.max(0, Math.round(this.health.hp)) })
+            if (this.health.hp <= 0) { this.net?.send({ type: 'dead' }); this._die('ELE ENCONTROU VOCÊ.') }
+          }
+        }
+        return
+      }
+      case 'hp': {
+        if (this.hunterMode) { this._lanHits += 1; this.hud.toast(`GOLPE CERTO — VIDA DELE ${m.hp}`, 1.7); this.audio.stalkerSting(0.4) }
+        return
+      }
+      case 'stagger': {
+        if (this.hunterMode) { this._puppetStun = 1.25; this._shake = Math.max(this._shake, 0.6); this.hud.toast('FACADA — VOCÊ ESTREMECE', 1.5); this.audio.knifeHitFlesh() }
+        return
+      }
+      case 'door': {
+        if (this.hunterMode) this._lanShowResult(false, 'ELE ESCAPOU.', 'o amarelo fica sem você — desta vez.')
+        return
+      }
+      case 'dead': {
+        if (this.hunterMode) this._lanShowResult(true, 'A CAÇA TEVE FIM.', 'o fugidor caiu no amarelo.')
+        return
+      }
+      case 'bye': this._onLanClose(m.reason ?? 'o outro saiu'); return
+      default: return
+    }
+  }
+
+  _lanShowResult(hunterWon, title, sub) {
+    const t = $('lanresult-title'), s = $('lanresult-sub')
+    if (t) { t.textContent = title; t.classList.toggle('win', !!hunterWon) }
+    if (s) s.textContent = sub
+    this.state = 'paused'
+    this.hud.showScreen('screen-lanresult')
+    try { this.input.exitLock() } catch { /* headless */ }
+  }
+
+  _onLanClose(reason) {
+    if (this._lanOver) return
+    this._lanOver = true
+    this.hud.toast(`A LIGAÇÃO CAIU — ${reason ?? 'o outro saiu'}`, 3.5)
+    setTimeout(() => location.reload(), 2500)
+  }
+
   _start() {
     this.audio.ensure()
     this.audio.startAmbience()
@@ -509,6 +711,7 @@ class Game {
   }
 
   _restart(newSeed) {
+    if (this._lanMode) { location.reload(); return }   // LAN: recomeçar sozinho dessincroniza — volta ao título
     this.audio.uiTick()
     if (this.ost && this.ost.paused) this.ost.play().catch(() => {})
     this.seed = newSeed ? ((Math.random() * 1e9) | 0) : this.seed
@@ -608,7 +811,15 @@ class Game {
       this.steps++
       this.audio.footstep(cam.sprinting)
     }
-    // ── vida — regeneração CoD após 5.5 s sem dano; batidas sob vida crítica ──
+    // LAN: o fugidor sente o caçador antes de o ver — batidas cardíacas por proximidade
+    if (this._lanRole === 'escapee' && this._remotePose && this.state === 'playing') {
+      const rd = Math.hypot(this._remotePose.x - this.player.x, this._remotePose.z - this.player.z)
+      if (rd < 8) {
+        this._heartTimer -= dt
+        if (this._heartTimer <= 0) { this._heartTimer = 0.45 + rd * 0.09; this.audio.heartThump() }
+      }
+    }
+        // ── vida — regeneração CoD após 5.5 s sem dano; batidas sob vida crítica ──
     updateHealth(this.health, dt)
     const hpFrac = this.health.hp / this.health.max
     const lowP = lowHealthPulse(this.health)
@@ -620,14 +831,52 @@ class Game {
     } else {
       this._heartTimer = 0.32
     }
-    // ── o stalker — ouve, vê, lembra, decai ───────────────────────
+    // ── multijogador LAN 1v1 — relógio, interpolação e replicação ──
+    if (this.net && this.state === 'playing') {
+      this._lanAcc += dt
+      if (this._lanAcc >= STATE_INTERVAL) {
+        this._lanAcc = 0
+        const p = this.player
+        const spd = cam?.moving ? (cam.sprinting ? 4.6 : 2.7) : 0
+        this.net.send({ type: 'st', x: +p.x.toFixed(3), z: +p.z.toFixed(3), yaw: +p.yaw.toFixed(3), speed: +spd.toFixed(2), crouch: !!p.crouch })
+      }
+      const rpt = this._remotePoseTarget
+      if (rpt) {
+        if (!this._remotePose) this._remotePose = { ...rpt }
+        else {
+          const np = approachPos(this._remotePose, rpt, 10, dt)
+          this._remotePose = { x: np.x, z: np.z, yaw: lerpAngle(this._remotePose.yaw, rpt.yaw, Math.min(1, dt * 10)), speed: rpt.speed, crouch: rpt.crouch }
+        }
+      }
+      if (this.hunterMode) { this._puppetStun = Math.max(0, this._puppetStun - dt); this._lanAtkCd = Math.max(0, this._lanAtkCd - dt) }
+    }
+    // quem fugiu vê o caçador como A CRIATURA (puppet na rede — nunca a IA do jogo)
+    if (this._lanRole === 'escapee' && this.stalker && this._remotePose) {
+      const b = this.stalker.brain
+      b.state = 'puppet'
+      b.dormantTimer = Infinity
+      b.x = this._remotePose.x
+      b.z = this._remotePose.z
+      b.yaw = this._remotePose.yaw
+      b.speed = this._remotePose.speed
+    }
+        // ── o stalker — ouve, vê, lembra, decai ───────────────────────
     if (this._noisePulse > 0) this._noisePulse = Math.max(0, this._noisePulse - dt / 2.4)
     const crouchNoise = this.player.crouch ? 0.38 : 1
     const noiseNow = Math.max(cam.moving ? (cam.sprinting ? 1.0 : 0.42) * crouchNoise : 0, this._noisePulse)
     // ── faca — LMB ataca na direção da mira; o golpe tem impacto num instante ──
     this._knife.cd = Math.max(0, this._knife.cd - dt)
     const lmb = this.input.consumeLmb()
-    if (lmb && this.state === 'playing' && this._knife.cd <= 0 && this._knifeReady) {
+    if (this.hunterMode) {
+      if (lmb && this.state === 'playing' && this._lanAtkCd <= 0 && this._puppetStun <= 0) {
+        this._lanAtkCd = 1.7
+        this._shake = Math.max(this._shake, 0.25)
+        this._noisePulse = Math.max(this._noisePulse, 0.30)
+        this.audio.stalkerPounce()   // bramido da criatura — o outro lado sente
+        const rp = this._remotePose
+        if (rp && Math.hypot(rp.x - this.player.x, rp.z - this.player.z) <= 2.9) this.net?.send({ type: 'atk' })
+      }
+    } else if (lmb && this.state === 'playing' && this._knife.cd <= 0 && this._knifeReady) {
       this._knife.t = 0
       this._knife.cd = 0.58
       this._noisePulse = Math.max(this._noisePulse, 0.30)   // a lâmina canta — o stalker ouve
@@ -684,10 +933,10 @@ class Game {
         })
       }
       const s = this.stalker.update(dt, { dt, px: cam.eyeX, py: cam.eyeY ?? EYE_FALLBACK, pz: cam.eyeZ, noise: noiseNow, time, crouch: this.player.crouch, light: lightL })
-      const creepable = s.state !== 'dormant' && s.state !== 'gone' && s.state !== 'apparition'
+      const creepable = !this.hunterMode && s.state !== 'dormant' && s.state !== 'gone' && s.state !== 'apparition'
       this.audio.setStalkerBreath(creepable ? Math.max(0, Math.min(1, 1.35 - s.distance / 9.5)) : 0)
       for (const ev of s.events) this._onStalkerEvent(ev)
-      if (s.state === 'hunt') {
+      if (s.state === 'hunt' && !this.hunterMode) {
         this._heartAcc += dt
         if (this._heartAcc > 0.66) { this._heartAcc = 0; this.audio.heartThump() }
       } else this._heartAcc = 0.34
@@ -736,7 +985,9 @@ class Game {
     }
     // interações — arestas de tecla
     const pressed = (code) => this.input.isDown(code) && !this._prevKeys.has(code)
-    if (pressed('KeyF')) {
+    if (pressed('KeyF') && this.hunterMode) {
+      this.hud.toast('O CAÇADOR NÃO PRECISA DE LANTERNA', 1.6)
+    } else if (pressed('KeyF')) {
       const r = toggleFlashlight(this.flashlightOn, this.battery)
       this.flashlightOn = r.on
       if (r.denied) this.hud.toast('SEM BATERIA')
@@ -948,6 +1199,11 @@ class Game {
         const horiz = Math.hypot(dir[0], dir[2]) || 1e-6
         const dot = (dir[0] * sx + dir[2] * sz) / (horiz * (dist || 1))
         if (dot >= 0.94) {
+          if (this._lanRole === 'escapee') {
+            this.net?.send({ type: 'stagger' })
+            this.audio.knifeHitFlesh(); this.hud.hitmarker(); this._shake = Math.max(this._shake, 0.30)
+            return
+          }
           const kbx = sx / (dist || 1), kbz = sz / (dist || 1)
           const res = st.brain.damage(40, kbx, kbz)
           this.audio.knifeHitFlesh()
@@ -1001,6 +1257,7 @@ class Game {
 
   _win() {
     if (this.state !== 'playing') return
+    if (this.net && this._lanRole === 'escapee' && !this._lanDoorSent) { this._lanDoorSent = true; this.net.send({ type: 'door' }) }
     this.state = 'finished'
     this.audio.doorUnlock()  // eco final
     this.hud.setEndStats({ time: this.playTime, steps: this.steps })
@@ -1068,14 +1325,14 @@ class Game {
     // lanterna em 1ª pessoa no canto inferior direito — SEM mãos/braços (pedido explícito).
     // Vista própria de viewmodel (FOV largo) composta sobre a vista da câmara.
     const flashMatrix = (() => {
-      if (this.state !== 'playing' || !this.modelsReady) return null
+      if (this.state !== 'playing' || !this.modelsReady || this.hunterMode) return null
       const invView = mat4.invert(view)
       if (!invView) return null
       return compose(invView, flashLocal())
     })()
     const vmView = (this.state === 'playing' && flashMatrix) ? mat4.multiply(mat4.create(), viewmodelProj(aspect), view) : null
     const knifeMatrix = (() => {
-      if (this.state !== 'playing' || !this._knifeReady) return null
+      if (this.state !== 'playing' || !this._knifeReady || this.hunterMode) return null
       const invView = mat4.invert(view)
       if (!invView) return null
       return compose(invView, knifeLocal(this._knife.t >= 0 ? this._knife.t : -1, time))
@@ -1090,11 +1347,11 @@ class Game {
     const stalkerApparition = this.stalker?.brain?.state === 'apparition'
     const stalkerMatrix = (() => {
       const st = this.stalker
-      if (!st || !st.present) return null
+      if (!st || !st.present || this.hunterMode) return null   // o caçador É a criatura — nunca se desenha
       const m = st.matrix()
       return compose(translateM(m.x, m.y, m.z), rotYTranslate(0, 0, 0, m.yaw), rotZ(m.roll ?? 0), scaleM(1))
     })()
-    if (this.stalker && this.stalker.present) this.renderer.updateDynamic('stalker', this.stalker.positions, this.stalker.normals, this.stalker.tangents)
+    if (this.stalker && this.stalker.present && !this.hunterMode) this.renderer.updateDynamic('stalker', this.stalker.positions, this.stalker.normals, this.stalker.tangents)
     // ── adereços novos (fusível, cassetes, kits, decor) — pivôs no chão ──
     // cada GLB tem dimensões próprias em metros reais; scale/lift/rot são por adereço
     const pickups = this._pickupPos
@@ -1130,6 +1387,10 @@ class Game {
       points.push({ pos: [built.exit.x, 2.1, built.exit.z], color: lvl.exitLight.color, radius: lvl.exitLight.radius })
       if (built.keyPos && !this.puzzle?.keyTaken) points.push({ pos: [built.keyPos.x, built.keyPos.y + 0.42, built.keyPos.z], color: lvl.keyLight.color, radius: lvl.keyLight.radius })
       points.push({ pos: this.violetPos, color: lvl.violetLight.color, radius: lvl.violetLight.radius })
+      if (this.hunterMode && this._remotePose) {
+        const rp = this._remotePose
+        points.push({ pos: [rp.x, 1.5, rp.z], color: [1.05, 0.88, 0.62], radius: 2.6 })
+      }
       const lamps = built.lamps ?? []
       const alive = lamps.filter(l => !l.bad)
         .map(l => ({ l, d: (l.x - camPos[0]) ** 2 + (l.z - camPos[2]) ** 2 }))
@@ -1159,6 +1420,10 @@ class Game {
     const cones = []
     const wantVol = this.state === 'playing'
     if (wantVol) {
+      if (this.hunterMode && this._remotePose) {
+        const rp = this._remotePose
+        cones.push({ apex: [rp.x, 1.58, rp.z], dir: [Math.sin(rp.yaw), -0.10, -Math.cos(rp.yaw)], length: 5.6, radius: 1.3, color: [1.0, 0.87, 0.60], intensity: 0.40 })
+      }
       if (lightIsOn(this.flashlightOn, this.battery)) {
         cones.push({ apex: spotPos, dir: lookDir, length: 7.4 * (0.62 + 0.38 * flashFrac), radius: 2.5 * reachScale, color: lvl.spot.color, intensity: (0.50 * (0.25 + 0.75 * beam)) * flicker })
       }
@@ -1271,6 +1536,10 @@ const boot = async () => {
     if (loadingEl) setTimeout(() => loadingEl.remove(), 900)
     if (AUTOSTART) {
       try { window.__game._start() } catch (e) { console.error('autostart:', e) }
+    }
+    if (QA_LAN_URL) {
+      if (QA_LAN_SIDE === 'guest') window.__game._lanConnect(QA_LAN_URL, 'g', null)
+      else window.__game._lanConnect(QA_LAN_URL, 'h', QA_LAN_ROLE === 'escapee' ? 'escapee' : 'hunter')
     }
     if (QA_QADEATH) setTimeout(() => { try { window.__game?._die('O QUARTO TE EXPULOU.') } catch (e) { console.error(e) } }, 1800)
   } catch (err) {
