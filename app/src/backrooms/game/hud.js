@@ -54,6 +54,12 @@ export class Hud {
     clearTimeout(this._hitTO)
     this._hitTO = setTimeout(() => el.classList.remove('show'), 260)
   }
+  setCells(n) {
+    const el = $('cells-ind')
+    if (!el) return
+    el.textContent = `PILHAS ×${n}`
+    el.classList.toggle('on', n > 0)
+  }
   setBattery(frac) {
     const bar = $('battery-fill')
     if (bar) {

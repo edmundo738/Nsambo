@@ -2,6 +2,7 @@
 // colisão círculo × grelha + arestas seladas + barreira da porta de saída)
 import { CELL, WALL_H } from '../engine/scene.js'
 import { OPEN, WALL } from '../engine/wfc.js'
+import { losClearXZ } from './occlusion.mjs'
 
 const EDGE_KEY = (a, b) => (a < b ? a * 4096 + b : b * 4096 + a)
 const RADIUS = 0.34
@@ -35,6 +36,7 @@ export class Player {
     this.stepDistance = 0
     this.finished = false
     this.crouch = false            // AGACHAR — [C] alterna; silencioso, lento, baixo
+    this.swapLock = false         // troca de pilha em curso — qualquer movimento bloqueado (vulnerabilidade)
     this.eyeH = EYE                // altura actual dos olhos (interpola para agachar)
     this.roll = 0                  // inclinação lateral da câmara no strafe (suavizada)
     this.landDip = 0               // afundar da câmara ao aterrar
@@ -81,7 +83,7 @@ export class Player {
     if (sprinting) this.stamina = Math.max(0, this.stamina - 0.30 * dt)
     else this.stamina = Math.min(1, this.stamina + (this.crouch ? 0.30 : 0.185) * dt)
     if (this.stamina <= 0.02) this.exhausted = true
-    const speed = this.crouch ? 1.5 : (sprinting ? 4.6 : 2.7)
+    const speed = this.swapLock ? 0 : (this.crouch ? 1.5 : (sprinting ? 4.6 : 2.7))
     // física vertical
     const vyBefore = this.vy
     if (input.isDown('Space') && this.feet <= 0.001) this.vy = 4.7
@@ -151,26 +153,11 @@ export class Player {
     }
     return [x, z]
   }
-  // linha de visão XZ (células sólidas + arestas seladas). ignoreCell: índice de célula sólida a ignorar (porta da saída)
+  // linha de visão XZ (células sólidas + arestas seladas + cantos). ignoreCell: índice de célula sólida a ignorar (porta da saída)
   hasLineOfSight(x0, z0, x1, z1, ignoreCell = -1) {
-    const passable = (ax, az, bx, bz) => {
-      if (this.isEdgeSealed(ax, az, bx, bz)) return false
-      return !(this.isSolid(bx, bz) && bz * this.size + bx !== ignoreCell)
-    }
-    const dx = x1 - x0, dz = z1 - z0
-    const n = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.1))
-    let pcx = Math.floor(x0 / CELL), pcz = Math.floor(z0 / CELL)
-    for (let i = 1; i <= n; i++) {
-      const cx = Math.floor((x0 + (dx * i) / n) / CELL), cz = Math.floor((z0 + (dz * i) / n) / CELL)
-      if (cx === pcx && cz === pcz) continue
-      if (cx !== pcx && cz !== pcz) {
-        const viaX = passable(pcx, pcz, cx, pcz) && passable(cx, pcz, cx, cz)
-        const viaZ = passable(pcx, pcz, pcx, cz) && passable(pcx, cz, cx, cz)
-        if (!viaX && !viaZ) return false
-      } else if (!passable(pcx, pcz, cx, cz)) return false
-      pcx = cx; pcz = cz
-    }
-    return true
+    // porta da saída fechada conta como sólida (comportamento original) — uma só verdade em occlusion.mjs
+    const forced = this.exitBlocked ? new Set([this.exitIdx]) : undefined
+    return losClearXZ({ cells: this.lvl.cells, size: this.size, sealed: this.sealed, forcedSolid: forced }, x0, z0, x1, z1, { ignoreCell })
   }
   forward() { return [Math.sin(this.yaw), 0, -Math.cos(this.yaw)] }
   lookDir() {

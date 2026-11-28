@@ -143,13 +143,36 @@ export async function loadGLB(url, { anim = null, animTime = 0 } = {}) {
   const meshNode = nodes.findIndex((n) => n.mesh !== undefined)
   if (meshNode < 0) throw new Error('GLB sem mesh: ' + url)
   const skin = nodes[meshNode].skin != null ? json.skins[nodes[meshNode].skin] : null
-  const prim = json.meshes[nodes[meshNode].mesh].primitives[0]
-  const P = readAccessor(prim.attributes.POSITION)
-  const N = prim.attributes.NORMAL !== undefined ? readAccessor(prim.attributes.NORMAL) : null
-  const UV = prim.attributes.TEXCOORD_0 !== undefined ? readAccessor(prim.attributes.TEXCOORD_0) : null
-  const J = prim.attributes.JOINTS_0 !== undefined ? readAccessor(prim.attributes.JOINTS_0) : null
-  const W = prim.attributes.WEIGHTS_0 !== undefined ? readAccessor(prim.attributes.WEIGHTS_0) : null
-  const indices = prim.indices !== undefined ? readAccessor(prim.indices).arr : (() => { const a = new Uint32Array(P.count); for (let i = 0; i < P.count; i++) a[i] = i; return a })()
+  // multi-primitiva: concatenar todas as primitivas numa só (posição/normal/uv/índices).
+  // O motor usa UM material por mesh — o modelo deve portanto coser os materiais numa só textura
+  // (as tampas da pilha AA usam uma amostra de aço na própria textura — ver make-battery-glb.py).
+  const prims = json.meshes[nodes[meshNode].mesh].primitives
+  const prim = prims[0]
+  const P = prims.map((p) => readAccessor(p.attributes.POSITION)).reduce((acc, p) => ({ arr: Float32Array.from([...acc.arr, ...p.arr]), count: acc.count + p.count, type: 'VEC3', comps: 3 }), { arr: new Float32Array(0), count: 0, type: 'VEC3', comps: 3 })
+  const N = prims.some((p) => p.attributes.NORMAL !== undefined)
+    ? prims.map((p) => (p.attributes.NORMAL !== undefined ? readAccessor(p.attributes.NORMAL) : (() => { const a = new Float32Array(readAccessor(p.attributes.POSITION).count * 3); a.fill(0); a[1] = 1; return { arr: a, count: a.length / 3, type: 'VEC3', comps: 3 } })()))
+        .reduce((acc, p) => ({ arr: Float32Array.from([...acc.arr, ...p.arr]), count: acc.count + p.count, type: 'VEC3', comps: 3 }), { arr: new Float32Array(0), count: 0, type: 'VEC3', comps: 3 })
+    : null
+  const UV = prims.every((p) => p.attributes.TEXCOORD_0 !== undefined)
+    ? prims.map((p) => readAccessor(p.attributes.TEXCOORD_0)).reduce((acc, p) => ({ arr: Float32Array.from([...acc.arr, ...p.arr]), count: acc.count + p.count, type: 'VEC2', comps: 2 }), { arr: new Float32Array(0), count: 0, type: 'VEC2', comps: 2 })
+    : null
+  const J = null   // skinning continua a exigir 1 primitiva (o Stalker tem uma) — ver abaixo
+  const W = null
+  const Jraw = prims.length === 1 && prim.attributes.JOINTS_0 !== undefined ? readAccessor(prim.attributes.JOINTS_0) : null
+  const Wraw = prims.length === 1 && prim.attributes.WEIGHTS_0 !== undefined ? readAccessor(prim.attributes.WEIGHTS_0) : null
+  const indices = (() => {
+    if (prims.length === 1) return prim.indices !== undefined ? readAccessor(prim.indices).arr : (() => { const a = new Uint32Array(P.count); for (let i = 0; i < P.count; i++) a[i] = i; return a })()
+    const merged = []
+    let base = 0
+    for (let pi = 0; pi < prims.length; pi++) {
+      const pr = prims[pi]
+      const cnt = readAccessor(pr.attributes.POSITION).count
+      const idx = pr.indices !== undefined ? readAccessor(pr.indices).arr : (() => { const a = new Uint32Array(cnt); for (let i = 0; i < cnt; i++) a[i] = i; return a })()
+      for (let i = 0; i < idx.length; i++) merged.push(base + idx[i])
+      base += cnt
+    }
+    return new Uint32Array(merged)
+  })()
 
   const pos = new Float32Array(P.count * 3)
   const nor = new Float32Array(P.count * 3)
@@ -167,8 +190,8 @@ export async function loadGLB(url, { anim = null, animTime = 0 } = {}) {
     const p = [P.arr[v * 3], P.arr[v * 3 + 1], P.arr[v * 3 + 2]]
     const n = N ? [N.arr[v * 3], N.arr[v * 3 + 1], N.arr[v * 3 + 2]] : [0, 1, 0]
     if (jointFinal) {
-      const i0 = J.arr[v * 4], i1 = J.arr[v * 4 + 1], i2 = J.arr[v * 4 + 2], i3 = J.arr[v * 4 + 3]
-      const w0 = W.arr[v * 4], w1 = W.arr[v * 4 + 1], w2 = W.arr[v * 4 + 2], w3 = W.arr[v * 4 + 3]
+      const i0 = Jraw.arr[v * 4], i1 = Jraw.arr[v * 4 + 1], i2 = Jraw.arr[v * 4 + 2], i3 = Jraw.arr[v * 4 + 3]
+      const w0 = Wraw.arr[v * 4], w1 = Wraw.arr[v * 4 + 1], w2 = Wraw.arr[v * 4 + 2], w3 = Wraw.arr[v * 4 + 3]
       const pl = [0, 0, 0], nl = [0, 0, 0]
       const acc = [[i0, w0], [i1, w1], [i2, w2], [i3, w3]]
       for (const [ji, w] of acc) {

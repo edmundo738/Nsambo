@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8" />
+<title>battery preview</title>
+<style>html, body { margin: 0; height: 100%; background: #0b0906; } canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; }</style>
+<script type="importmap">{ "imports": { "three": "/node_modules/three/build/three.module.js", "three/addons/": "/node_modules/three/examples/jsm/" } }</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+const angle = new URLSearchParams(location.search).get('angle') ?? 'hero'
+const W = 620, H = 460
+const canvas = document.getElementById('c')
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+renderer.setSize(W, H, false)
+renderer.outputColorSpace = THREE.SRGBColorSpace
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x141109)
+const cam = new THREE.PerspectiveCamera(35, W / H, 0.01, 10)
+const V = {
+  hero:  { pos: [0.10, 0.10, 0.40], tgt: [0, 0.070, 0] },
+  lay:   { pos: [0.11, 0.10, 0.38], tgt: [0, 0.012, 0] },
+  float: { pos: [0.09, 0.09, 0.38], tgt: [0, 0.055, 0] },
+}[angle]
+cam.position.set(...V.pos)
+cam.lookAt(...V.tgt)
+scene.add(new THREE.HemisphereLight(0xffe8c0, 0x1a140c, 1.1))
+const key = new THREE.DirectionalLight(0xfff1d8, 2.6); key.position.set(0.08, 0.12, 0.06); scene.add(key)
+const fill = new THREE.DirectionalLight(0x8fb3ff, 0.7); fill.position.set(-0.09, 0.05, -0.07); scene.add(fill)
+const floor = new THREE.Mesh(new THREE.CircleGeometry(0.16, 32), new THREE.MeshStandardMaterial({ color: 0x2e2718, roughness: 0.95 }))
+floor.rotation.x = -Math.PI / 2
+scene.add(floor)
+const grid = new THREE.GridHelper(0.32, 8, 0x5a4c2a, 0x241f12)
+grid.position.y = 0.0005
+scene.add(grid)
+new GLTFLoader().load('/models/psx_battery.glb', (gltf) => {
+  const m = gltf.scene
+  m.traverse((o) => { if (o.isMesh) { o.material.flatShading = true; o.material.needsUpdate = true } })
+  m.scale.setScalar(3)
+  if (angle === 'lay') { m.rotation.set(Math.PI / 2, 0, 0.6); m.position.y = 0.0213 } else { m.rotation.y = -0.63; m.position.y = 0.001 }
+  if (angle === 'float') m.position.y = 0.035
+  scene.add(m)
+  renderer.render(scene, cam)
+  window.__batteryReady = true
+}, undefined, (e) => { console.error('falha:', e); window.__batteryError = String(e) })
+renderer.render(scene, cam)
+</script>
+</body>
+</html>

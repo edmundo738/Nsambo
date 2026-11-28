@@ -17,20 +17,11 @@ import { createHealth, damageHealth, healHealth, updateHealth, lowHealthPulse, h
 import { buildGymLevel, GYM_SEED } from './levels/gym.js'
 import { buildDevMapLevel, DEVMAP_SEED } from './levels/devmap.js'
 import { DebugPanel } from './game/debugpanel.js'
+import { rayBlocked, makeSealedSet } from './game/occlusion.mjs'
+import { beamStrength, flashlightPressure } from './game/flashlight-pressure.mjs'
+import { mulberry32 } from './engine/wfc.js'
 import { DevMenu } from './game/devmenu.js'
 
-// DDA grosso no plano XZ — true se o raio atinge uma célula fechada/fora do mundo (parede)
-function raycastCells(cells, size, eye, dir, maxDist) {
-  if (!cells || !size) return false
-  const step = 0.08
-  for (let t = 0.18; t <= maxDist; t += step) {
-    const x = eye[0] + dir[0] * t, z = eye[2] + dir[2] * t
-    const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL)
-    if (cx < 0 || cz < 0 || cx >= size || cz >= size) return true
-    if (cells[cz * size + cx] !== 1) return true
-  }
-  return false
-}
 const $ = (id) => document.getElementById(id)
 const params = new URLSearchParams(window.location.search)
 const DEBUG = params.has('debug')
@@ -59,6 +50,9 @@ const QA_HP = params.has('qahp') ? Number(params.get('qahp')) : null   // QA: vi
 const QA_STALKERDEMO = params.has('stalkerdemo')   // validação: stalker à frente do jogador, em espreita
 const QA_STALKER_DIST = (() => { const v = parseFloat(params.get('stalkerdist') ?? ''); return Number.isFinite(v) ? v : null })()   // QA: distância-alvo do spawn do stalker
 const QA_STALKERDIE = (() => { const v = parseFloat(params.get('stalkerdie') ?? ''); return Number.isFinite(v) ? v : null })() // QA: dispara o ragdoll aos N segundos
+const SWAP_SECONDS = 2.0   // trocar a pilha é uma ação física — 2 s de vulnerabilidade (design 2026-11-27)
+const POUNCE_IMPACT_DELAY = 0.42   // s até ao contacto no arco do strike (STRIKE_SECONDS = 0.9, pico sin(π·u) ≈ 0.45)
+const POUNCE_IMPACT_RADIUS = 1.45  // m — se o jogador se afastou mais que isto antes do impacto, evadiu
 const QA_STALKERHUNT = params.has('stalkerhunt')   // QA: força o estado de caçada (stalker a avançar) após o spawn demo
 const AUTOSTART = params.has('autostart') || QA_STALKERDEMO
 
@@ -135,6 +129,7 @@ class Game {
     this._armSpeed = 0
     this.stalker = null
     this.stalkerAssets = null
+    this._apparition = null
     this.health = createHealth(HEALTH_MAX)
     this._knife = { t: -1, cd: 0 }
     this._knifeReady = false
@@ -197,6 +192,7 @@ class Game {
       const extras = [
         ['fuse', 'psx_fuse.glb'], ['cassette', 'psx_cassette_tape.glb'], ['crowbar', 'psx_crowbar.glb'],
         ['medkit', 'psx_medkit.glb'], ['marker', 'psx_pickup_marker.glb'], ['flashdead', 'psx_flashlight_dead.glb'],
+        ['battery', 'psx_battery.glb'],
       ]
       for (const [name, file] of extras) {
         try { await this.renderer.setModel(name, await loadGLB(base + file)) }
@@ -244,8 +240,40 @@ class Game {
       cells: lvl.cells, size: lvl.size,
       sealedEdges: lvl.sealedEdges, seed: this.seed,
       startIdx: this._farthestOpenCell(),
+      pillarCells: lvl.pillarCells,
     })
     this.stalker = new StalkerEntity(this.stalkerAssets, brain)
+    // a sala é o antagonista; ele só existe como aparição na névoa — adormecido entre jumpscares
+    brain.state = 'dormant'
+    brain.dormantTimer = Infinity
+    brain.speed = 0
+  }
+
+  // escolhe uma célula aberta à frente do jogador, na névoa (12–26 m), com linha de vista —
+  // ele só aparece onde te podes dar conta dele; nunca atrás de divisória
+  _pickApparitionSpot(px, pz, minD, maxD) {
+    const lvl = this.lvl
+    if (!lvl?.cells) return null
+    const { size, cells } = lvl
+    const look = this.player.lookDir()
+    const fwdLen = Math.hypot(look[0], look[2]) || 1
+    const fx = look[0] / fwdLen, fz = look[2] / fwdLen
+    const cands = []
+    for (let z = 0; z < size; z++) for (let x = 0; x < size; x++) {
+      if (cells[z * size + x] !== 1) continue
+      const wx = x * CELL + CELL / 2, wz = z * CELL + CELL / 2
+      const dx = wx - px, dz = wz - pz
+      const d = Math.hypot(dx, dz)
+      if (d < minD || d > maxD) continue
+      if ((dx * fx + dz * fz) / (d || 1) < 0.25) continue
+      if (!this.player.hasLineOfSight(px, pz, wx, wz)) continue
+      cands.push({ x: wx, z: wz, d })
+    }
+    if (!cands.length) return null
+    cands.sort((a, b) => a.d - b.d)
+    const near = cands.slice(0, Math.max(1, Math.ceil(cands.length / 3)))   // ele está MAIS PERTO do que a névoa sugere
+    const pick = near[Math.floor(Math.random() * near.length)]
+    return { x: pick.x, z: pick.z }
   }
 
   reset(seed) {
@@ -308,6 +336,7 @@ class Game {
       const sx = lvl.spawn.x, sz = lvl.spawn.z
       const reserved = new Set()
       const res = (x, z) => reserved.add(x + ',' + z)
+      for (const i of lvl.pillarCells ?? []) res(i % size, Math.floor(i / size))   // pilares são obstáculos físicos
       res(sx, sz); res(lvl.exit.x, lvl.exit.z)
       if (lvl.key) res(lvl.key.x, lvl.key.z)
       if (this.violetPos) res(Math.floor(this.violetPos[0] / CELL), Math.floor(this.violetPos[2] / CELL))
@@ -338,8 +367,21 @@ class Game {
         fuse: claim(0.55),
         crowbar: claim(0.68),
         flashdead: claim(0.80),
+        battery0: claim(0.30),
+        battery1: claim(0.52),
+        battery2: claim(0.88),
       }
     })()
+    // pilhas AA — carga determinística por seed; nem todas cheias (design 2026-11-27)
+    const brng = mulberry32(((seed ?? 1337) ^ 0xBA77E12) >>> 0)
+    const charges = [0.75 + brng() * 0.25, 0.75 + brng() * 0.25, 0.22 + brng() * 0.28]
+    for (let i = charges.length - 1; i > 0; i--) { const j = Math.floor(brng() * (i + 1)); const t = charges[i]; charges[i] = charges[j]; charges[j] = t }
+    this._batteryDrops = ['battery0', 'battery1', 'battery2']
+      .map((k, i) => { const p = this._pickupPos?.[k]; return p ? { x: p.x, z: p.z, charge: charges[i], taken: false } : null })
+      .filter(Boolean)
+    this._batteries = []
+    this._swapT = null
+    this.hud?.setCells?.(0)
     this.health = createHealth(HEALTH_MAX)
     if (QA_HP != null && Number.isFinite(QA_HP)) this.health.hp = clamp(QA_HP, 0, HEALTH_MAX)
     this._knife = { t: -1, cd: 0 }
@@ -347,6 +389,7 @@ class Game {
     this.hud?.setHealth(this.health.hp / HEALTH_MAX, this.health.hp < 35)
     this._fuseTaken = false; this._cassetteTaken = false; this._medkitTaken = false
     this._fuseInstalled = false; this._powerOn = false; this._jumpscared = false
+    this._pouncePending = null
     if (QA_POWER) { this._fuseInstalled = true; this._powerOn = true }
     // página rasgada de lore junto ao pedestal — prop estático, sem interação
     this._noteMatrix = (() => {
@@ -598,15 +641,78 @@ class Game {
       else if (prev < KNIFE_IMPACT_T && this._knife.t >= KNIFE_IMPACT_T) this._knifeImpact(cam)
     }
     if (this.stalker) {
+      // ── aparições na névoa: 2–2.8 s a encarar à distância, depois some 38–80 s ──
+      // (nunca caça, nunca avança, nunca fere — jumpscare de atmosfera apenas)
+      if (this.state === 'playing' && !QA_STALKERHUNT) {
+        const app = this._apparition ?? (this._apparition = { next: time + 14 + Math.random() * 16, until: 0 })
+        const b = this.stalker.brain
+        if (b.state === 'apparition' && time >= app.until) {
+          b.state = 'dormant'
+          app.next = time + 38 + Math.random() * 42
+          app.until = 0
+        }
+        if (b.state === 'dormant' && time >= app.next) {
+          const spot = this._pickApparitionSpot(cam.eyeX, cam.eyeZ, 9, 17)
+          if (spot) {
+            b.x = spot.x; b.z = spot.z
+            b.yaw = Math.atan2(cam.eyeX - b.x, -(cam.eyeZ - b.z))
+            b.speed = 0
+            b.state = 'apparition'
+            app.until = time + 2.0 + Math.random() * 0.8
+            app.next = Infinity
+            this.audio.stalkerSting(0.55)
+          } else {
+            app.next = time + 5
+          }
+        }
+      }
       if (QA_STALKERDIE != null) { this._qaDieT = (this._qaDieT ?? 0) + rawDt; if (this._qaDieT >= QA_STALKERDIE && !this.stalker.rig?.ragdoll) this.stalker.die(0.55, -0.85, 4.8) }
-      const s = this.stalker.update(dt, { dt, px: cam.eyeX, py: cam.eyeY ?? EYE_FALLBACK, pz: cam.eyeZ, noise: noiseNow, time, crouch: this.player.crouch })
-      const creepable = s.state !== 'dormant' && s.state !== 'gone'
+      // L = B×C×D×O — a lanterna só protege enquanto o feixe atinge a criatura (sem cobertura por engano)
+      let lightL = 0
+      const brain0 = this.stalker.brain
+      if (brain0 && brain0.state !== 'dormant' && brain0.state !== 'gone') {
+        const beamDir = this.player.lookDir()
+        lightL = flashlightPressure({
+          on: lightIsOn(this.flashlightOn, this.battery),
+          battery: this.battery,
+          eye: [cam.eyeX, cam.eyeY ?? EYE_FALLBACK, cam.eyeZ],
+          target: [brain0.x, 1.25, brain0.z],
+          beamDir,
+          cosInner: Math.cos(LEVEL1.spot.inner),
+          cosOuter: Math.cos(LEVEL1.spot.outer),
+          occluded: !this.player.hasLineOfSight(cam.eyeX, cam.eyeZ, brain0.x, brain0.z),
+        })
+      }
+      const s = this.stalker.update(dt, { dt, px: cam.eyeX, py: cam.eyeY ?? EYE_FALLBACK, pz: cam.eyeZ, noise: noiseNow, time, crouch: this.player.crouch, light: lightL })
+      const creepable = s.state !== 'dormant' && s.state !== 'gone' && s.state !== 'apparition'
       this.audio.setStalkerBreath(creepable ? Math.max(0, Math.min(1, 1.35 - s.distance / 9.5)) : 0)
       for (const ev of s.events) this._onStalkerEvent(ev)
       if (s.state === 'hunt') {
         this._heartAcc += dt
         if (this._heartAcc > 0.66) { this._heartAcc = 0; this.audio.heartThump() }
       } else this._heartAcc = 0.34
+    }
+    // pounce pendente — o dano só entra na janela de impacto da animação
+    if (this._pouncePending) {
+      const pp = this._pouncePending
+      pp.t += dt
+      if (pp.t >= pp.imp) {
+        this._pouncePending = null
+        const distNow = Math.hypot(this.player.x - pp.x, this.player.z - pp.z)
+        if (distNow <= POUNCE_IMPACT_RADIUS && this.state === 'playing') {
+          damageHealth(this.health, 58)   // dois pounces sem tratamento = morte
+          this.hud.damageFlash()
+          if (this.health.hp <= 0) {
+            this._die('ELE VIU VOCÊ.')
+          } else {
+            this._shake = 1.0
+            this.audio.stalkerPounce()
+            this.hud.toast('ELE FERIU VOCÊ — CORRA', 1.9)
+          }
+        } else if (this.state === 'playing') {
+          // errou por um triz — silêncio absoluto (mais tenso que um efeito)
+        }
+      }
     }
     // tremor da câmara (pounce)
     if (this._shake > 0) this._shake = Math.max(0, this._shake - dt * 1.4)
@@ -680,19 +786,46 @@ class Game {
         { id: 'crowbar', pos: pickups.crowbar, r: 0.62, ok: true, prompt: '[E] EXAMINAR O PÉ-DE-CABRA' },
         { id: 'flashdead', pos: pickups.flashdead, r: 0.62, ok: true, prompt: '[E] EXAMINAR A LANTERNA VELHA' },
         { id: 'note', pos: notePos, r: 0.62, ok: true, prompt: '[E] LER A NOTA' },
+        ...(this._batteryDrops ?? []).map((d, i) => ({ id: 'battery' + i, pos: d, r: 0.55, ok: !d.taken, prompt: `[E] APANHAR A PILHA AA (${Math.round(d.charge * 100)}%)` })),
         { id: 'fusebox', pos: built.fusebox ? { x: built.fusebox.x, z: built.fusebox.z } : null, r: 0.85, ok: !this._fuseInstalled,
           prompt: this._fuseTaken ? '[E] INSTALAR O FUSÍVEL' : '[E] EXAMINAR O QUADRO ELÉTRICO' },
       ]
       for (const c of candidates) {
         if (!c.ok || !c.pos) continue
+        // sem interações através de paredes/divisórias — mesma verdade do jogador
+        if (!player.hasLineOfSight(px, pz, c.pos.x, c.pos.z)) continue
         if (raySphere(c.pos.x, c.pos.y ?? 0.35, c.pos.z, c.r, 2.4)) {
           prompt = c.prompt; target = c.id; break
         }
       }
     }
+    // ── troca da pilha da lanterna — segurar E, 2 s, vulnerável (design 2026-11-27) ──
+    const wantSwap = !target && this.state === 'playing' && this.battery < 0.995 && this._batteries.length > 0
+    this.player.swapLock = wantSwap && this.input.isDown('KeyE')
+    if (this.player.swapLock) {
+      this._swapT = (this._swapT ?? 0) + dt
+      this._noisePulse = Math.max(this._noisePulse, 0.22)   // o estalo atrai-o — ele está à espreita
+      const pct = Math.min(99, Math.floor((this._swapT / SWAP_SECONDS) * 100))
+      this.hud.prompt(`A TROCAR A PILHA… ${pct}%`)
+      if (this._swapT >= SWAP_SECONDS) {
+        const best = Math.max(...this._batteries)
+        this._batteries.splice(this._batteries.indexOf(best), 1)
+        this.battery = best
+        this._swapT = null
+        this.player.swapLock = false
+        this.hud.setBattery(this.battery)
+        this.hud.setCells?.(this._batteries.length)
+        this.hud.toast(`PILHA SUBSTITUÍDA — ${Math.round(best * 100)}%`, 2.4)
+        this.audio.click(true)
+      }
+    } else if (!wantSwap) {
+      this._swapT = null
+      this.player.swapLock = false
+    }
+    if (wantSwap && !this.player.swapLock) this.hud.prompt('[SEGURA E] TROCAR A PILHA')
     this._keyTargeted = target === 'key'
     const chEl = $('crosshair'); if (chEl) chEl.classList.toggle('active', !!target)
-    this.hud.prompt(prompt)
+    if (this.player.swapLock || wantSwap) { /* prompt já tratado */ } else this.hud.prompt(prompt)
     if (pressed('KeyE')) {
       if (target === 'key') {
         // o GESTO começa já; a posse só é confirmada no contacto (ver bloco abaixo)
@@ -704,6 +837,16 @@ class Game {
         this.hud.setHealth(this.health.hp / this.health.max, this.health.hp < 35)
         this.hud.toast('PRIMEIROS SOCORROS — A VIDA VOLTA', 2.6)
         this.audio.uiTick()
+      } else if (target && target.startsWith('battery')) {
+        const i = Number(target.slice(7))
+        const d = this._batteryDrops[i]
+        if (d && !d.taken) {
+          d.taken = true
+          this._batteries.push(d.charge)
+          this.hud.setCells?.(this._batteries.length)
+          this.hud.toast(`PILHA AA — ${Math.round(d.charge * 100)}% DE CARGA`, 2.4)
+          this.audio.keyPickup()
+        }
       } else if (target === 'fuse') {
         this._fuseTaken = true
         this.hud.toast('FUSÍVEL ADQUIRIDO — 30A / 250V', 2.6)
@@ -817,7 +960,8 @@ class Game {
       }
     }
     // parede/chão — baque seco da lâmina no reboco e arranhão
-    const wall = raycastCells(this.lvl?.cells, this.lvl?.size, [cam.eyeX, cam.eyeY ?? EYE_FALLBACK, cam.eyeZ], dir, 2.7)
+    const occl = this.lvl ? { cells: this.lvl.cells, size: this.lvl.size, sealed: makeSealedSet(this.lvl.sealedEdges) } : null
+    const wall = occl ? rayBlocked(occl, [cam.eyeX, cam.eyeY ?? EYE_FALLBACK, cam.eyeZ], dir, 2.7) : false
     if (wall) { this.audio.knifeHitWall(); this.hud.hitmarker(); this._shake = Math.max(this._shake, 0.13); return }
     if (dir[1] < -0.45) { const fd = (cam.eyeY ?? EYE_FALLBACK) / -dir[1]; if (fd <= 2.8) { this.audio.knifeHitWall(); this._shake = Math.max(this._shake, 0.12); return } }
   }
@@ -826,6 +970,7 @@ class Game {
     switch (ev) {
       case 'spawn': case 'respawn': this.audio.stalkerMurmur(0.5); break
       case 'heard': this.audio.stalkerMurmur(0.34); break
+      case 'repelled': this.audio.stalkerSting(0.38); break
       case 'sight-stalk': this.audio.stalkerSting(0.5); break
       case 'sight-hunt': case 'stalk-hunt':
         this.audio.stalkerSting(1.0)
@@ -833,15 +978,8 @@ class Game {
         break
       case 'pounce': {
         this.stalker?.strike(this.player.x, this.player.z)   // salto para a cara — pounce visual
-        damageHealth(this.health, 58)   // dois pounces sem tratamento = morte
-        this.hud.damageFlash()
-        if (this.health.hp <= 0) {
-          this._die('ELE VIU VOCÊ.')
-        } else {
-          this._shake = 1.0
-          this.audio.stalkerPounce()
-          this.hud.toast('ELE FERIU VOCÊ — CORRA', 1.9)
-        }
+        // dano ADIARado até ao contacto visual (arco do strike, envelope sin(π·u), pico ≈ 0.45 s)
+        this._pouncePending = { t: 0, imp: POUNCE_IMPACT_DELAY, x: this.player.x, z: this.player.z }
         break
       }
       case 'vanish': this.audio.stalkerVanish(); break
@@ -949,6 +1087,7 @@ class Game {
       // chave virada para a câmara (face do aro visível), ligeiramente inclinada — "na mão" sem mão
       return compose(invView, translateM(-0.24, -0.142, -0.345), rotYTranslate(0, 0, 0, 0.22), rotX(Math.PI / 2 - 0.38), scaleM(3.1))
     })()
+    const stalkerApparition = this.stalker?.brain?.state === 'apparition'
     const stalkerMatrix = (() => {
       const st = this.stalker
       if (!st || !st.present) return null
@@ -966,6 +1105,7 @@ class Game {
     const crowbarMatrix = pickups?.crowbar ? flatProp(pickups.crowbar, 1.3, 0.016, 0.9) : null
     const medkitMatrix = (!this._medkitTaken && pickups?.medkit) ? flatProp(pickups.medkit, 0.030, 0.080, 0.2) : null
     const flashDeadMatrix = pickups?.flashdead ? (pickups.flashdead ? compose(translateM(pickups.flashdead.x, 0.038, pickups.flashdead.z), rotYTranslate(0, 0, 0, yawHash(pickups.flashdead) + 1.1), rotX(Math.PI / 2), scaleM(1.9)) : null) : null
+    const batteryMatrices = (this._batteryDrops ?? []).map((d, i) => d.taken ? null : compose(translateM(d.x, 0.023, d.z), rotYTranslate(0, 0, 0, yawHash(d) + i * 2.1), rotX(Math.PI / 2), scaleM(3.1)))
     const _marker = (p) => p ? compose(translateM(p.x, 0.006, p.z), scaleM(1.25)) : null
     const markers = QA_PICKUP_MARKERS ? [
       ...((!this._fuseTaken && pickups?.fuse) ? [_marker(pickups.fuse)] : []),
@@ -993,10 +1133,10 @@ class Game {
       const lamps = built.lamps ?? []
       const alive = lamps.filter(l => !l.bad)
         .map(l => ({ l, d: (l.x - camPos[0]) ** 2 + (l.z - camPos[2]) ** 2 }))
-        .sort((a, b) => a.d - b.d).slice(0, 2)
+        .sort((a, b) => a.d - b.d).slice(0, 4)
       for (const { l } of alive) {
-        if (l.d > 90) continue
-        points.push({ pos: [l.x, l.y, l.z], color: [0.92, 0.78, 0.52], radius: 4.8 })
+        if (l.d > 110) continue
+        points.push({ pos: [l.x, l.y, l.z], color: [1.30, 1.08, 0.72], radius: 6.5 })
       }
       // lâmpada nua da sala de saída — só quando a porta abre (luz por baixo da porta)
       if (this.doorProgress > 0.15) {
@@ -1008,23 +1148,19 @@ class Game {
         points.push({ pos: [built.exit.x, 2.2, built.exit.z], color: [1.0, 0.84, 0.48], radius: 8.0 })
       }
     }
+    // beam contínuo pela carga — fonte REAL de luz acompanha a bateria, não é só escurecer a malha
+    const flashFrac = this.battery
+    const beam = beamStrength(flashFrac)                         // B: 1 → 0.45 (50%) → ~0.16 (10%) → 0
+    const reachScale = 0.72 + 0.28 * Math.pow(flashFrac, 0.7)    // cone/ alcance efectivo contrai com a carga
     // dying flicker
-    const dying = this.battery < 0.18 && this.flashlightOn
+    const dying = flashFrac < 0.18 && this.flashlightOn
     const flicker = dying ? (Math.sin(time * 31) * Math.sin(time * 17.3 + 1.7) > -0.55 ? 1 : 0.22) : 1
-    // ── volumétricos: funis de poeira das lâmpadas vivas + feixe da lanterna ──
+    // ── volumétricos: só o feixe da lanterna + poeira (lâmpadas iluminam de verdade, sem 'fake') ──
     const cones = []
     const wantVol = this.state === 'playing'
     if (wantVol) {
       if (lightIsOn(this.flashlightOn, this.battery)) {
-        cones.push({ apex: spotPos, dir: lookDir, length: 7.4, radius: 2.5, color: lvl.spot.color, intensity: 0.50 * flicker })
-      }
-      const aliveCones = (built?.lamps ?? []).filter(l => !l.bad)
-        .map(l => ({ l, d: (l.x - camPos[0]) ** 2 + (l.z - camPos[2]) ** 2 }))
-        .filter(({ d }) => d < 15 * 15)
-        .sort((a, b) => a.d - b.d)
-        .slice(0, 6)
-      for (const { l } of aliveCones) {
-        cones.push({ apex: [l.x, l.y + 0.005, l.z], dir: [0, -1, 0], length: 2.72, radius: 1.45, color: [0.93, 0.80, 0.55], intensity: 0.30 })
+        cones.push({ apex: spotPos, dir: lookDir, length: 7.4 * (0.62 + 0.38 * flashFrac), radius: 2.5 * reachScale, color: lvl.spot.color, intensity: (0.50 * (0.25 + 0.75 * beam)) * flicker })
       }
     }
     const lowP = this._lowP ?? 0
@@ -1040,7 +1176,7 @@ class Game {
       const cy = m[1] * t[0] + m[5] * t[1] + m[9] * t[2] + m[13]
       return [cx / cw * 0.5 + 0.5, cy / cw * 0.5 + 0.5]
     })()
-    const torchI = lightIsOn(this.flashlightOn, this.battery) ? 0.30 * flicker : 0
+    const torchI = lightIsOn(this.flashlightOn, this.battery) ? 0.30 * beam * flicker : 0
     this.renderer.render({
       viewProj: viewProjFinal,
       lightViewProj,
@@ -1057,9 +1193,9 @@ class Game {
         pos: spotPos,
         dir: lookDir,
         color: lvl.spot.color,
-        intensity: lvl.spot.intensity * flicker,
-        inner: lvl.spot.inner,
-        outer: lvl.spot.outer,
+        intensity: lvl.spot.intensity * beam * flicker,
+        inner: lvl.spot.inner * (0.78 + 0.22 * flashFrac),
+        outer: lvl.spot.outer * reachScale,
       },
       lightMatrix: lightViewProj,
       doorMatrixL: doorModelL,
@@ -1068,7 +1204,8 @@ class Game {
       keyVisible: !!built && !!built.keyPos && !this.puzzle?.keyTaken,
       keyHot: this._keyTargeted ? 1.0 + 0.35 * Math.sin(time * 7) : 0.6,
       stalkerMatrix,
-      grain: lvl.grain,
+      stalkerApparition,
+grain: lvl.grain,
       vignette: lvl.vignette,
       levels: lvl.levels,
       cones,
@@ -1083,6 +1220,7 @@ class Game {
       torchUV,
       torchI,
       fuseMatrix,
+      batteryMatrices,
       cassetteMatrix,
       crowbarMatrix,
       medkitMatrix,

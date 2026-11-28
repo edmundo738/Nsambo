@@ -259,6 +259,7 @@ export class Renderer {
       ...(frame.crowbarMatrix && this.mesh_crowbar ? [{ ...this.mesh_crowbar, model: frame.crowbarMatrix, material: 'modelProp', tex: this.tex_crowbar, rough: 0.4, metallic: 0.75 }] : []),
       ...(frame.medkitMatrix && this.mesh_medkit ? [{ ...this.mesh_medkit, model: frame.medkitMatrix, material: 'modelProp', tex: this.tex_medkit, emissive: 0.10, ec: [1.0, 0.32, 0.28], rough: 0.6 }] : []),
       ...(frame.flashDeadMatrix && this.mesh_flashdead ? [{ ...this.mesh_flashdead, model: frame.flashDeadMatrix, material: 'modelProp', tex: this.tex_flashdead, rough: 0.45, metallic: 0.5 }] : []),
+      ...(this.mesh_battery ? (frame.batteryMatrices ?? []).filter(Boolean).map((m) => ({ ...this.mesh_battery, model: m, material: 'modelProp', tex: this.tex_battery, emissive: 0.12, ec: [1.0, 0.9, 0.55], rough: 0.55, metallic: 0.35 })) : []),
       ...(this.mesh_marker ? (frame.markers ?? []).map(mm => ({ ...this.mesh_marker, model: mm, material: 'modelProp', tex: this.tex_marker, emissive: 0.95, ec: [1.0, 0.96, 0.86], rough: 0.7 })) : []),
     ].filter(Boolean)
     const all = [...this.meshes.map(m => {
@@ -268,7 +269,8 @@ export class Renderer {
       return { ...m, model: IDENTITY, flick: v > -0.35 ? 1.15 : 0.15 }
     }), ...dynMeshes]
     if (frame.stalkerMatrix && this.mesh_stalker) {
-      all.push({ ...this.mesh_stalker, model: frame.stalkerMatrix, material: 'modelStalker', pulse: 2.75 + 0.55 * Math.sin(frame.time * 1.65 + 0.8) })
+      const app = !!frame.stalkerApparition
+      all.push({ ...this.mesh_stalker, model: frame.stalkerMatrix, material: 'modelStalker', pulse: app ? 4.6 : 2.75 + 0.55 * Math.sin(frame.time * 1.65 + 0.8), noFog: app })
     }
 
     // ── passe de sombra (só a lanterna projecta) ──────────────────
@@ -314,7 +316,8 @@ export class Renderer {
       gl.uniformMatrix4fv(this.uMain.uLightMatrix, false, frame.lightMatrix)
     }
     gl.uniform3fv(this.uMain.uFogColor, frame.fog)
-    gl.uniform1f(this.uMain.uFogDensity, frame.fogDensity)
+    const FOG_D = frame.fogDensity
+    gl.uniform1f(this.uMain.uFogDensity, FOG_D)
     // texturas partilhadas
     gl.activeTexture(gl.TEXTURE5)
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTex)
@@ -322,10 +325,13 @@ export class Renderer {
 
     for (const m of all) {
       this._bindMaterial(m)
+      // aparição na névoa desenhada sem nevoeiro naquele mesh — a silhueta estarrece (jumpscare)
+      gl.uniform1f(this.uMain.uFogDensity, m.noFog ? 0.0 : FOG_D)
       gl.uniformMatrix4fv(this.uMain.uModel, false, m.model)
       gl.bindVertexArray(m.vao)
       gl.drawElements(gl.TRIANGLES, m.indexCount, gl.UNSIGNED_INT, 0)
     }
+    gl.uniform1f(this.uMain.uFogDensity, FOG_D)
 
     // ── volumétricos aditivos (cones de foco + poeira) — após opacos, antes dos braços ──
     this._drawVolumetrics(frame)

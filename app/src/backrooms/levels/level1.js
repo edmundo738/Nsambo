@@ -16,5 +16,5 @@ export const LEVEL1 = {
   grain: 0.06,
   vignette: 0.52,
   levels: 44,
-  batterySeconds: 240,
+  batterySeconds: 120,   // 02:00 por pilha (design 2026-11-27)
 }
