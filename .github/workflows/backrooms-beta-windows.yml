@@ -92,33 +92,33 @@ jobs:
         run: |
           $tag = 'backrooms-v0.3.0-beta'
           $notes = @'
-## THE BACKROOMS — BETA 0.3.0 (LAN 1v1 — caçador vs fugidor)
+          ## THE BACKROOMS — BETA 0.3.0 (LAN 1v1 — caçador vs fugidor)
 
-**NOVO: o primeiro multijogador do jogo — 1v1 na tua rede local (Wi-Fi/cabo).**
+          **NOVO: o primeiro multijogador do jogo — 1v1 na tua rede local (Wi-Fi/cabo).**
 
-- **MULTIJOGADOR (LAN) → CRIAR** — és o caçador ou o fugidor (o lado de lá fica com o oposto).
-- **PROCURAR PARTIDAS** — à Minecraft: o jogo percorre a tua rede e **lista as salas abertas**; um clique em «ENTRAR».
-- **Seed partilhado, papéis opostos.** O fugidor vê-te a ti — o caçador — como *ele*. O caçador vê o fugidor só como uma sombra na parede.
-- **Vitórias**: caçador esvazia a vida do fugidor (golpe do botão esquerdo); fugidor abre a porta SAÍDA com a chave.
-- Sem servidores na internet: o relé corre na máquina do anfitrião (`relay.cjs`, incluso no ZIP). **O anfitrião precisa de Node.js** (https://nodejs.org); o convidado não precisa de nada. Bluetooth: não suportado — dois jogos não comunicam por BLE.
+          - **MULTIJOGADOR (LAN) → CRIAR** — és o caçador ou o fugidor (o lado de lá fica com o oposto).
+          - **PROCURAR PARTIDAS** — à Minecraft: o jogo percorre a tua rede e **lista as salas abertas**; um clique em «ENTRAR».
+          - **Seed partilhado, papéis opostos.** O fugidor vê-te a ti — o caçador — como *ele*. O caçador vê o fugidor só como uma sombra na parede.
+          - **Vitórias**: caçador esvazia a vida do fugidor (golpe do botão esquerdo); fugidor abre a porta SAÍDA com a chave.
+          - Sem servidores na internet: o relé corre na máquina do anfitrião (`relay.cjs`, incluso no ZIP). **O anfitrião precisa de Node.js** (https://nodejs.org); o convidado não precisa de nada. Bluetooth: não suportado — dois jogos não comunicam por BLE.
 
-### Como jogar LAN
+          ### Como jogar LAN
 
-**Opção A — instalador (recomendado):** instala e abre «NSAMBO-BACKROOMS».
-**Opção B — sem instalar:** extrai o ZIP INTEIRO, duplo-clique em `JOGAR.bat` (joga local) ou `LAN.bat` (hospeda uma sala LAN).
+          **Opção A — instalador (recomendado):** instala e abre «NSAMBO-BACKROOMS».
+          **Opção B — sem instalar:** extrai o ZIP INTEIRO, duplo-clique em `JOGAR.bat` (joga local) ou `LAN.bat` (hospeda uma sala LAN).
 
-Para criar sala: duplo-clique em `LAN.bat` → no jogo, **MULTIJOGADOR (LAN) → CRIAR**.
-Para entrar: **PROCURAR PARTIDAS** → «ENTRAR» na sala listada (ou escreve o IP do anfitrião).
+          Para criar sala: duplo-clique em `LAN.bat` → no jogo, **MULTIJOGADOR (LAN) → CRIAR**.
+          Para entrar: **PROCURAR PARTIDAS** → «ENTRAR» na sala listada (ou escreve o IP do anfitrião).
 
-### Lobby 0 — «O Amarelo Infinito»
-Tudo da 0.2.0 continua (stalker com ragdoll assentado, loading fora do DOM, IA congelada após a morte, F3 em tempo real).
+          ### Lobby 0 — «O Amarelo Infinito»
+          Tudo da 0.2.0 continua (stalker com ragdoll assentado, loading fora do DOM, IA congelada após a morte, F3 em tempo real).
 
-### Notas honestas
-- Sem hardware real por trás desta build — daí a beta. Bug reports: **Issue** no repositório (seed, o que fazias, print).
-- A descoberta LAN percorre os /24 mais comuns; se a rede for exótica, usa o IP manual. Se a ligação cair, a sala fecha.
-- Host precisa de Node para o relé (compilar para .exe fica para a próxima).
-- Só existe o **Lobby 0**. O resto é vapor, por agora.
-'@
+          ### Notas honestas
+          - Sem hardware real por trás desta build — daí a beta. Bug reports: **Issue** no repositório (seed, o que fazias, print).
+          - A descoberta LAN percorre os /24 mais comuns; se a rede for exótica, usa o IP manual. Se a ligação cair, a sala fecha.
+          - Host precisa de Node para o relé (compilar para .exe fica para a próxima).
+          - Só existe o **Lobby 0**. O resto é vapor, por agora.
+          '@
           gh release view $tag 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag NSAMBO-THE-BACKROOMS-0.3.0-beta-Windows-setup.exe NSAMBO-THE-BACKROOMS-0.3.0-beta-web.zip --clobber
